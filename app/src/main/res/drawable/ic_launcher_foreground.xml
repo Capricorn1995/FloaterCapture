@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background circle -->
+    <group
+        android:name="background_group"
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="1.0"
+        android:scaleY="1.0">
+        <path
+            android:fillColor="#6750A4"
+            android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+    </group>
+
+    <!-- Float icon - simplified circle with dots (representing floating/capture) -->
+    <group
+        android:name="icon_group"
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.5"
+        android:scaleY="0.5"
+        android:translateX="27"
+        android:translateY="27">
+
+        <!-- Outer ring -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,20C35.22,20 20,35.22 20,54s15.22,34 34,34 34,-15.22 34,-34S72.78,20 54,20zM54,80c-14.36,0 -26,-11.64 -26,-26s11.64,-26 26,-26 26,11.64 26,26 -11.64,26 -26,26z" />
+
+        <!-- Capture icon - simplified camera/viewfinder -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M42,38h24c2.21,0 4,1.79 4,4v16c0,2.21 -1.79,4 -4,4H42c-2.21,0 -4,-1.79 -4,-4V42c0,-2.21 1.79,-4 4,-4zM54,56c2.21,0 4,-1.79 4,-4s-1.79,-4 -4,-4 -4,1.79 -4,4 1.79,4 4,4z" />
+
+        <!-- Bottom dot (floating indicator) -->
+        <path
+            android:fillColor="#EADDFF"
+            android:pathData="M54,64m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    </group>
+
+</vector>

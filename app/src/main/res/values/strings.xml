@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FloaterCapture</string>
+    <string name="accessibility_service_description">FloaterCapture 无障碍服务，用于检测和抓取应用中的多媒体内容。</string>
+
+    <!-- Floating Window -->
+    <string name="floating_button_content_desc">悬浮抓取按钮</string>
+    <string name="expand_panel">展开控制面板</string>
+    <string name="collapse_panel">收起控制面板</string>
+
+    <!-- Control Panel -->
+    <string name="panel_title">媒体抓取</string>
+    <string name="media_detected_count">检测到 %d 个媒体文件</string>
+    <string name="btn_download_all">全部下载</string>
+    <string name="btn_clear">清除</string>
+    <string name="btn_settings">设置</string>
+    <string name="btn_close">关闭</string>
+    <string name="no_media_detected">未检测到媒体内容</string>
+
+    <!-- Media Types -->
+    <string name="type_image">图片</string>
+    <string name="type_video">视频</string>
+    <string name="type_audio">音频</string>
+    <string name="type_other">其他</string>
+
+    <!-- Permissions -->
+    <string name="permission_overlay_required">需要悬浮窗权限以显示控制面板</string>
+    <string name="permission_accessibility_required">需要无障碍服务权限以检测内容</string>
+    <string name="permission_storage_required">需要存储权限以保存文件</string>
+    <string name="open_settings">打开设置</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">抓取状态</string>
+    <string name="notification_downloading">正在下载媒体文件…</string>
+    <string name="notification_download_complete">下载完成</string>
+    <string name="notification_download_failed">下载失败</string>
+
+    <!-- General -->
+    <string name="ok">确定</string>
+    <string name="cancel">取消</string>
+    <string name="download">下载</string>
+    <string name="preview">预览</string>
+    <string name="delete">删除</string>
+    <string name="save_path">保存路径: %s</string>
+</resources>
