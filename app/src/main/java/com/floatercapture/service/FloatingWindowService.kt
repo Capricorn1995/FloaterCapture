@@ -10,6 +10,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.util.DisplayMetrics
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -47,6 +48,11 @@ class FloatingWindowService : Service() {
     private var layoutParams: WindowManager.LayoutParams? = null
     private var isPanelExpanded = false
     private var isInitialPositionSet = false
+
+    // 主题包装的上下文，用于 Material 组件
+    private val themedContext: Context by lazy {
+        ContextThemeWrapper(this, R.style.Theme_FloaterCapture)
+    }
 
     // 拖拽相关变量
     private var initialX = 0
@@ -171,7 +177,8 @@ class FloatingWindowService : Service() {
      * 用代码构建悬浮窗，替代 XML 布局，避免 Binary XML 解析错误
      */
     private fun buildFloatingWindowProgrammatically(): View {
-        val container = FrameLayout(this).apply {
+        val ctx = themedContext
+        val container = FrameLayout(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -179,17 +186,17 @@ class FloatingWindowService : Service() {
         }
 
         // FAB 按钮
-        val fab = FloatingActionButton(this).apply {
+        val fab = FloatingActionButton(ctx).apply {
             id = R.id.fab_capture
             val sizePx = dpToPx(56)
             layoutParams = FrameLayout.LayoutParams(sizePx, sizePx).apply {
                 gravity = Gravity.CENTER
             }
             setImageResource(android.R.drawable.ic_menu_camera)
-            imageTintList = android.content.res.ColorStateList.valueOf(
+            imageTintList = ColorStateList.valueOf(
                 android.graphics.Color.WHITE
             )
-            backgroundTintList = android.content.res.ColorStateList.valueOf(
+            backgroundTintList = ColorStateList.valueOf(
                 android.graphics.Color.parseColor("#6750A4")
             )
             contentDescription = getString(R.string.floating_button_content_desc)
@@ -209,20 +216,17 @@ class FloatingWindowService : Service() {
     }
 
     private fun buildControlPanelProgrammatically(): View {
-        val cardBg = android.graphics.drawable.GradientDrawable().apply {
-            setColor(android.graphics.Color.parseColor("#FFF7F2FA"))
-            cornerRadius = dpToPx(16).toFloat()
-        }
-        val card = androidx.cardview.widget.CardView(this).apply {
+        val ctx = themedContext
+        val card = androidx.cardview.widget.CardView(ctx).apply {
             radius = dpToPx(16).toFloat()
             cardElevation = dpToPx(8).toFloat()
-            setCardBackgroundColor(android.content.res.ColorStateList.valueOf(
+            setCardBackgroundColor(ColorStateList.valueOf(
                 android.graphics.Color.parseColor("#FFF7F2FA")
             ))
             setContentPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
         }
 
-        val rootLayout = LinearLayout(this).apply {
+        val rootLayout = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -231,11 +235,11 @@ class FloatingWindowService : Service() {
         }
 
         // 标题行
-        val headerRow = LinearLayout(this).apply {
+        val headerRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val title = android.widget.TextView(this).apply {
+        val title = android.widget.TextView(ctx).apply {
             id = R.id.tv_panel_title
             text = getString(R.string.panel_title)
             setTextColor(android.graphics.Color.parseColor("#1C1B1F"))
@@ -246,7 +250,7 @@ class FloatingWindowService : Service() {
         rootLayout.addView(headerRow)
 
         // 分割线
-        rootLayout.addView(View(this).apply {
+        rootLayout.addView(View(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1).apply {
                 topMargin = dpToPx(8)
                 bottomMargin = dpToPx(8)
@@ -255,7 +259,7 @@ class FloatingWindowService : Service() {
         })
 
         // 媒体数量文本
-        val tvCount = android.widget.TextView(this).apply {
+        val tvCount = android.widget.TextView(ctx).apply {
             id = R.id.tv_media_count
             text = getString(R.string.no_media_detected)
             setTextColor(android.graphics.Color.parseColor("#1C1B1F"))
@@ -268,7 +272,7 @@ class FloatingWindowService : Service() {
         rootLayout.addView(tvCount)
 
         // 类型计数行
-        val typeRow = LinearLayout(this).apply {
+        val typeRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dpToPx(8)
@@ -281,19 +285,19 @@ class FloatingWindowService : Service() {
             "文档" to R.id.tv_audio_count,
             "其他" to R.id.tv_other_count
         ).forEach { (label, id) ->
-            val col = LinearLayout(this).apply {
+            val col = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
-            val countTv = android.widget.TextView(this).apply {
+            val countTv = android.widget.TextView(ctx).apply {
                 this.id = id
                 text = "0"
                 setTextColor(android.graphics.Color.parseColor("#49454F"))
                 textSize = 12f
                 gravity = Gravity.CENTER
             }
-            val labelTv = android.widget.TextView(this).apply {
+            val labelTv = android.widget.TextView(ctx).apply {
                 text = label
                 setTextColor(android.graphics.Color.parseColor("#49454F"))
                 textSize = 11f
@@ -306,7 +310,7 @@ class FloatingWindowService : Service() {
         rootLayout.addView(typeRow)
 
         // 分割线
-        rootLayout.addView(View(this).apply {
+        rootLayout.addView(View(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1).apply {
                 topMargin = dpToPx(4)
                 bottomMargin = dpToPx(8)
@@ -315,11 +319,11 @@ class FloatingWindowService : Service() {
         })
 
         // 按钮行
-        val btnRow = LinearLayout(this).apply {
+        val btnRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
         }
-        val btnClear = com.google.android.material.button.MaterialButton(this).apply {
+        val btnClear = com.google.android.material.button.MaterialButton(ctx).apply {
             id = R.id.btn_clear
             text = getString(R.string.btn_clear)
             setTextColor(android.graphics.Color.parseColor("#49454F"))
@@ -327,7 +331,7 @@ class FloatingWindowService : Service() {
                 marginEnd = dpToPx(8)
             }
         }
-        val btnDownload = com.google.android.material.button.MaterialButton(this).apply {
+        val btnDownload = com.google.android.material.button.MaterialButton(ctx).apply {
             id = R.id.btn_download_all
             text = getString(R.string.btn_download_all)
             isEnabled = false
