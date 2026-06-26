@@ -58,12 +58,16 @@ fun MainApp() {
                         label = { Text(item.label) },
                         selected = currentRoute == item.route,
                         onClick = {
-                            if (currentRoute != item.route) {
-                                navController.navigate(item.route) {
-                                    popUpTo("main") { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                            // 导航到目标路由
+                            navController.navigate(item.route) {
+                                // 弹出到起始目的地，但不包含它
+                                popUpTo(navController.graph.startDestinationId) {
+                                    saveState = true
                                 }
+                                // 避免重复创建相同目的地
+                                launchSingleTop = true
+                                // 恢复之前保存的状态
+                                restoreState = true
                             }
                         },
                     )

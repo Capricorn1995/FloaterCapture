@@ -86,14 +86,17 @@ class FloatingWindowService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 必须在 onStartCommand 中尽快调用 startForeground，
+        // 否则 startForegroundService 会触发系统崩溃
+        startForegroundService()
+
         when (intent?.action) {
             ACTION_SHOW -> showFloatingWindow()
             ACTION_HIDE -> hideFloatingWindow()
             ACTION_TOGGLE -> toggleFloatingWindow()
             else -> {
-                // 默认行为：显示悬浮窗并启动前台服务
+                // 默认行为：显示悬浮窗
                 showFloatingWindow()
-                startForegroundService()
             }
         }
         return START_STICKY
@@ -117,8 +120,12 @@ class FloatingWindowService : Service() {
     // ========================
 
     private fun startForegroundService() {
-        val notification = NotificationHelper.createServiceNotification(this)
-        startForeground(NOTIFICATION_ID_SERVICE, notification)
+        try {
+            val notification = NotificationHelper.createServiceNotification(this)
+            startForeground(NOTIFICATION_ID_SERVICE, notification)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     // ========================
@@ -130,28 +137,34 @@ class FloatingWindowService : Service() {
 
         // 检查悬浮窗权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !PermissionHelper.canDrawOverlays(this)) {
-            PermissionHelper.openOverlaySettings(this)
-            Toast.makeText(this, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "请先授予悬浮窗权限", Toast.LENGTH_LONG).show()
+            _isRunning.value = false
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
         }
 
-        floatingView = View.inflate(this, R.layout.floating_window, null)
-        setupFloatingView()
-        setupDragSupport()
-        setupControlPanel()
-
-        layoutParams = createLayoutParams()
         try {
+            floatingView = View.inflate(this, R.layout.floating_window, null)
+            setupFloatingView()
+            setupDragSupport()
+            setupControlPanel()
+
+            layoutParams = createLayoutParams()
             windowManager.addView(floatingView, layoutParams)
         } catch (e: Exception) {
             e.printStackTrace()
+            Toast.makeText(this, "悬浮窗启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+            _isRunning.value = false
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
 
     private fun hideFloatingWindow() {
         removeFloatingWindow()
+        _isRunning.value = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 

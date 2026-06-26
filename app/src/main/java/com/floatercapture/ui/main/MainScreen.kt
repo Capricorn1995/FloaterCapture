@@ -85,7 +85,11 @@ fun MainScreen(navController: NavController) {
                             if (isFloatingRunning.value) {
                                 FloatingWindowService.stopService(context)
                             } else {
-                                FloatingWindowService.startService(context)
+                                if (!PermissionHelper.canDrawOverlays(context)) {
+                                    PermissionHelper.openOverlaySettings(context)
+                                } else {
+                                    FloatingWindowService.startService(context)
+                                }
                             }
                             isFloatingRunning.value = FloatingWindowService.isRunning.value
                         },
@@ -212,7 +216,13 @@ fun MainScreen(navController: NavController) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Button(
-                        onClick = { FloatingWindowService.startService(context) },
+                        onClick = {
+                            if (!PermissionHelper.canDrawOverlays(context)) {
+                                PermissionHelper.openOverlaySettings(context)
+                            } else {
+                                FloatingWindowService.startService(context)
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.FiberManualRecord, contentDescription = null, modifier = Modifier.size(16.dp))
