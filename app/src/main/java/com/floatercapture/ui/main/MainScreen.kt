@@ -238,7 +238,7 @@ fun MainScreen(navController: NavController) {
                         onClick = { navController.navigate("media_list") },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("媒体列表", style = MaterialTheme.typography.labelMedium)
                     }

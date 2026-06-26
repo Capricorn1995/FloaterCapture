@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,7 +47,7 @@ fun MainApp() {
 
     val bottomNavItems = listOf(
         BottomNavItem("main", Icons.Default.Home, "首页"),
-        BottomNavItem("media_list", Icons.Default.List, "媒体"),
+        BottomNavItem("media_list", Icons.Default.PhotoLibrary, "媒体"),
         BottomNavItem("downloads", Icons.Default.Download, "下载"),
         BottomNavItem("settings", Icons.Default.Settings, "设置"),
     )

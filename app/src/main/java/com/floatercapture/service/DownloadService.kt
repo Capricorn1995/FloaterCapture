@@ -172,9 +172,10 @@ class DownloadService : Service() {
             val source = body.source()
             val sink = outputFile.sink().buffer()
 
+            var downloadedBytes = 0L
+
             sink.use { bufferedSink ->
                 source.use { bufferedSource ->
-                    var downloadedBytes = 0L
                     val buffer = okio.Buffer()
                     var lastUpdateTime = System.currentTimeMillis()
 
