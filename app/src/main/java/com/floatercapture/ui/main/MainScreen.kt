@@ -33,21 +33,25 @@ import java.util.*
 @Composable
 fun MainScreen(navController: NavController) {
     val context = FloaterApp.appContext
-    val isFloatingRunning = remember { mutableStateOf(FloatingWindowService.isRunning.value) }
-    val isAccessibilityEnabled = remember { mutableStateOf(MediaCaptureService.isServiceEnabled(context)) }
+
+    // 使用 collectAsState 订阅 StateFlow，避免同步读取阻塞 UI
+    val isFloatingRunning by FloatingWindowService.isRunning.collectAsState()
 
     val mediaRepository = remember { MediaRepository() }
     val mediaItems by mediaRepository.getAll().collectAsState(initial = emptyList())
     val recentItems = mediaItems.take(5)
 
-    val overlayGranted = remember { mutableStateOf(PermissionHelper.canDrawOverlays(context)) }
-    val accessibilityGranted = remember { mutableStateOf(MediaCaptureService.isServiceEnabled(context)) }
-    val showPermissionWarning = !overlayGranted.value || !accessibilityGranted.value
+    // 权限状态使用 remember + LaunchedEffect 延迟检查，避免主线程阻塞
+    var overlayGranted by remember { mutableStateOf(false) }
+    var accessibilityGranted by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        overlayGranted.value = PermissionHelper.canDrawOverlays(context)
-        accessibilityGranted.value = MediaCaptureService.isServiceEnabled(context)
+        // 在协程中检查权限，避免主线程 IPC 阻塞
+        overlayGranted = PermissionHelper.canDrawOverlays(context)
+        accessibilityGranted = MediaCaptureService.isServiceEnabled(context)
     }
+
+    val showPermissionWarning = !overlayGranted || !accessibilityGranted
 
     Scaffold { innerPadding ->
         LazyColumn(
@@ -82,7 +86,7 @@ fun MainScreen(navController: NavController) {
                     ElevatedCard(
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            if (isFloatingRunning.value) {
+                            if (isFloatingRunning) {
                                 FloatingWindowService.stopService(context)
                             } else {
                                 if (!PermissionHelper.canDrawOverlays(context)) {
@@ -91,12 +95,12 @@ fun MainScreen(navController: NavController) {
                                     FloatingWindowService.startService(context)
                                 }
                             }
-                            isFloatingRunning.value = FloatingWindowService.isRunning.value
+                            // StateFlow 会通过 collectAsState 自动更新
                         },
                     ) {
                         StatusCardContent(
                             title = "悬浮窗",
-                            isActive = isFloatingRunning.value,
+                            isActive = isFloatingRunning,
                             activeLabel = "运行中",
                             inactiveLabel = "未运行",
                             activeIcon = Icons.Default.Visibility,
@@ -109,7 +113,7 @@ fun MainScreen(navController: NavController) {
                     ) {
                         StatusCardContent(
                             title = "无障碍服务",
-                            isActive = isAccessibilityEnabled.value,
+                            isActive = accessibilityGranted,
                             activeLabel = "已开启",
                             inactiveLabel = "未开启",
                             activeIcon = Icons.Default.CheckCircle,
@@ -152,10 +156,10 @@ fun MainScreen(navController: NavController) {
                             }
                             TextButton(
                                 onClick = {
-                                    if (!overlayGranted.value) {
+                                    if (!overlayGranted) {
                                         PermissionHelper.openOverlaySettings(context)
                                     }
-                                    if (!accessibilityGranted.value) {
+                                    if (!accessibilityGranted) {
                                         PermissionHelper.openAccessibilitySettings(context)
                                     }
                                 },

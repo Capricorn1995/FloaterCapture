@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -12,7 +13,10 @@ import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -145,8 +149,8 @@ class FloatingWindowService : Service() {
         }
 
         try {
-            floatingView = View.inflate(this, R.layout.floating_window, null)
-            setupFloatingView()
+            // 使用纯代码构建悬浮窗，避免 XML 解析错误
+            floatingView = buildFloatingWindowProgrammatically()
             setupDragSupport()
             setupControlPanel()
 
@@ -155,10 +159,188 @@ class FloatingWindowService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(this, "悬浮窗启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+            floatingView = null
             _isRunning.value = false
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
+    }
+
+    /**
+     * 用代码构建悬浮窗，替代 XML 布局，避免 Binary XML 解析错误
+     */
+    private fun buildFloatingWindowProgrammatically(): View {
+        val container = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        // FAB 按钮
+        val fab = FloatingActionButton(this).apply {
+            id = R.id.fab_capture
+            val sizePx = dpToPx(56)
+            layoutParams = FrameLayout.LayoutParams(sizePx, sizePx).apply {
+                gravity = Gravity.CENTER
+            }
+            setImageResource(android.R.drawable.ic_menu_camera)
+            imageTintList = android.content.res.ColorStateList.valueOf(
+                android.graphics.Color.WHITE
+            )
+            backgroundTintList = android.content.res.ColorStateList.valueOf(
+                android.graphics.Color.parseColor("#6750A4")
+            )
+            contentDescription = getString(R.string.floating_button_content_desc)
+        }
+        container.addView(fab)
+
+        // 控制面板
+        val cardPanel = buildControlPanelProgrammatically()
+        cardPanel.id = R.id.card_control_panel
+        cardPanel.visibility = View.GONE
+        val cardLp = FrameLayout.LayoutParams(dpToPx(280), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.CENTER
+        }
+        container.addView(cardPanel, cardLp)
+
+        return container
+    }
+
+    private fun buildControlPanelProgrammatically(): View {
+        val cardBg = android.graphics.drawable.GradientDrawable().apply {
+            setColor(android.graphics.Color.parseColor("#FFF7F2FA"))
+            cornerRadius = dpToPx(16).toFloat()
+        }
+        val card = androidx.cardview.widget.CardView(this).apply {
+            radius = dpToPx(16).toFloat()
+            cardElevation = dpToPx(8).toFloat()
+            setCardBackgroundColor(android.content.res.ColorStateList.valueOf(
+                android.graphics.Color.parseColor("#FFF7F2FA")
+            ))
+            setContentPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
+        }
+
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        // 标题行
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val title = android.widget.TextView(this).apply {
+            id = R.id.tv_panel_title
+            text = getString(R.string.panel_title)
+            setTextColor(android.graphics.Color.parseColor("#1C1B1F"))
+            textSize = 16f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerRow.addView(title)
+        rootLayout.addView(headerRow)
+
+        // 分割线
+        rootLayout.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1).apply {
+                topMargin = dpToPx(8)
+                bottomMargin = dpToPx(8)
+            }
+            setBackgroundColor(android.graphics.Color.parseColor("#CAC4D0"))
+        })
+
+        // 媒体数量文本
+        val tvCount = android.widget.TextView(this).apply {
+            id = R.id.tv_media_count
+            text = getString(R.string.no_media_detected)
+            setTextColor(android.graphics.Color.parseColor("#1C1B1F"))
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dpToPx(4)
+                bottomMargin = dpToPx(4)
+            }
+        }
+        rootLayout.addView(tvCount)
+
+        // 类型计数行
+        val typeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dpToPx(8)
+                bottomMargin = dpToPx(8)
+            }
+        }
+        listOf(
+            "图片" to R.id.tv_image_count,
+            "视频" to R.id.tv_video_count,
+            "文档" to R.id.tv_audio_count,
+            "其他" to R.id.tv_other_count
+        ).forEach { (label, id) ->
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val countTv = android.widget.TextView(this).apply {
+                this.id = id
+                text = "0"
+                setTextColor(android.graphics.Color.parseColor("#49454F"))
+                textSize = 12f
+                gravity = Gravity.CENTER
+            }
+            val labelTv = android.widget.TextView(this).apply {
+                text = label
+                setTextColor(android.graphics.Color.parseColor("#49454F"))
+                textSize = 11f
+                gravity = Gravity.CENTER
+            }
+            col.addView(countTv)
+            col.addView(labelTv)
+            typeRow.addView(col)
+        }
+        rootLayout.addView(typeRow)
+
+        // 分割线
+        rootLayout.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1).apply {
+                topMargin = dpToPx(4)
+                bottomMargin = dpToPx(8)
+            }
+            setBackgroundColor(android.graphics.Color.parseColor("#CAC4D0"))
+        })
+
+        // 按钮行
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        val btnClear = com.google.android.material.button.MaterialButton(this).apply {
+            id = R.id.btn_clear
+            text = getString(R.string.btn_clear)
+            setTextColor(android.graphics.Color.parseColor("#49454F"))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dpToPx(8)
+            }
+        }
+        val btnDownload = com.google.android.material.button.MaterialButton(this).apply {
+            id = R.id.btn_download_all
+            text = getString(R.string.btn_download_all)
+            isEnabled = false
+        }
+        btnRow.addView(btnClear)
+        btnRow.addView(btnDownload)
+        rootLayout.addView(btnRow)
+
+        card.addView(rootLayout)
+        return card
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
     }
 
     private fun hideFloatingWindow() {
@@ -216,24 +398,9 @@ class FloatingWindowService : Service() {
     }
 
     // ========================
-    // 悬浮窗视图设置
+    // 悬浮窗拖拽和点击
     // ========================
 
-    private fun setupFloatingView() {
-        val fab = floatingView?.findViewById<FloatingActionButton>(R.id.fab_capture) ?: return
-
-        fab.setOnClickListener {
-            if (!isDragging) {
-                toggleControlPanel()
-            }
-            isDragging = false
-        }
-    }
-
-    /**
-     * 实现 FAB 按钮的拖拽功能。
-     * 使用 OnTouchListener 跟踪手指移动，计算位移并更新 LayoutParams。
-     */
     private fun setupDragSupport() {
         val fab = floatingView?.findViewById<FloatingActionButton>(R.id.fab_capture) ?: return
 
@@ -274,7 +441,11 @@ class FloatingWindowService : Service() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    // 手指抬起，结束拖拽
+                    // 手指抬起，如果没有拖拽则视为点击
+                    if (!isDragging) {
+                        toggleControlPanel()
+                    }
+                    isDragging = false
                     true
                 }
                 else -> false

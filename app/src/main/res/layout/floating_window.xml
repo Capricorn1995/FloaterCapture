@@ -15,11 +15,10 @@
         android:src="@drawable/ic_floating_button"
         app:backgroundTint="@color/floating_button_background"
         app:fabCustomSize="56dp"
-        app:maxImageSize="28dp"
+        app:maxImageSize="24dp"
         app:tint="@color/floating_button_icon"
         app:rippleColor="@color/floating_button_pressed"
-        app:elevation="6dp"
-        app:borderWidth="0dp" />
+        app:elevation="6dp" />
 
     <!-- Expandable Control Panel (initially hidden) -->
     <androidx.cardview.widget.CardView
