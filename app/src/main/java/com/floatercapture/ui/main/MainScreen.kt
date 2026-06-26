@@ -23,6 +23,7 @@ import com.floatercapture.data.model.MediaType
 import com.floatercapture.data.repository.MediaRepository
 import com.floatercapture.service.FloatingWindowService
 import com.floatercapture.service.MediaCaptureService
+import com.floatercapture.service.ScreenCaptureService
 import com.floatercapture.util.PermissionHelper
 import com.floatercapture.ui.theme.*
 import kotlinx.coroutines.flow.first
@@ -217,7 +218,7 @@ fun MainScreen(navController: NavController) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Button(
                         onClick = {
@@ -230,16 +231,24 @@ fun MainScreen(navController: NavController) {
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.FiberManualRecord, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("开始捕获")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("开始捕获", style = MaterialTheme.typography.labelMedium)
+                    }
+                    OutlinedButton(
+                        onClick = { navController.navigate("media_list") },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("媒体列表", style = MaterialTheme.typography.labelMedium)
                     }
                     OutlinedButton(
                         onClick = { navController.navigate("downloads") },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(Icons.Default.Download, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("查看下载")
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("下载", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }

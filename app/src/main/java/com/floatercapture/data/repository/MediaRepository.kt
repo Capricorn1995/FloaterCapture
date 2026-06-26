@@ -18,6 +18,10 @@ class MediaRepository(
         return mediaDao.insertAll(items)
     }
 
+    suspend fun update(item: MediaItem) {
+        mediaDao.update(item)
+    }
+
     fun getAll(): Flow<List<MediaItem>> {
         return mediaDao.getAll()
     }

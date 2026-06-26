@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
 interface MediaDao {
     suspend fun insert(item: MediaItem): String
     suspend fun insertAll(items: List<MediaItem>): List<String>
+    suspend fun update(item: MediaItem)
     fun getAll(): Flow<List<MediaItem>>
     fun getById(id: String): Flow<MediaItem?>
     fun getByPackage(packageName: String): Flow<List<MediaItem>>
@@ -73,6 +74,13 @@ private class InMemoryMediaDao : MediaDao {
         }
         refreshFlow()
         return ids
+    }
+
+    override suspend fun update(item: MediaItem) {
+        if (item.id.isNotEmpty() && storage.containsKey(item.id)) {
+            storage[item.id] = item
+            refreshFlow()
+        }
     }
 
     override fun getAll(): Flow<List<MediaItem>> {

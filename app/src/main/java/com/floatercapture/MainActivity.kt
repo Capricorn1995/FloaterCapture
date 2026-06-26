@@ -19,6 +19,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.floatercapture.ui.main.DownloadListScreen
 import com.floatercapture.ui.main.MainScreen
+import com.floatercapture.ui.main.MediaListScreen
 import com.floatercapture.ui.main.MediaPreviewScreen
 import com.floatercapture.ui.settings.SettingsScreen
 import com.floatercapture.ui.theme.FloaterCaptureTheme
@@ -45,6 +46,7 @@ fun MainApp() {
 
     val bottomNavItems = listOf(
         BottomNavItem("main", Icons.Default.Home, "首页"),
+        BottomNavItem("media_list", Icons.Default.List, "媒体"),
         BottomNavItem("downloads", Icons.Default.Download, "下载"),
         BottomNavItem("settings", Icons.Default.Settings, "设置"),
     )
@@ -84,6 +86,9 @@ fun MainApp() {
         ) {
             composable("main") {
                 MainScreen(navController = navController)
+            }
+            composable("media_list") {
+                MediaListScreen(navController = navController)
             }
             composable("downloads") {
                 DownloadListScreen(navController = navController)

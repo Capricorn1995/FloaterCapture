@@ -5,5 +5,7 @@ data class AppRule(
     val appName: String = "",
     val imageViewClasses: List<String> = emptyList(),
     val videoViewClasses: List<String> = emptyList(),
-    val specialRules: String? = null
+    val webViewClasses: List<String> = emptyList(),
+    val specialRules: String? = null,
+    val description: String = ""
 )

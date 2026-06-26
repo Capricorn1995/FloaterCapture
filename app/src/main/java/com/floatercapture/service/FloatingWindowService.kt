@@ -156,6 +156,7 @@ class FloatingWindowService : Service() {
 
             layoutParams = createLayoutParams()
             windowManager.addView(floatingView, layoutParams)
+            _isRunning.value = true
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(this, "悬浮窗启动失败: ${e.message}", Toast.LENGTH_LONG).show()
@@ -664,7 +665,7 @@ class FloatingWindowService : Service() {
                 action = ACTION_SHOW
             }
             ContextCompat.startForegroundService(context, intent)
-            _isRunning.value = true
+            // 注意：_isRunning 将在 showFloatingWindow() 成功后设置为 true
         }
 
         /**

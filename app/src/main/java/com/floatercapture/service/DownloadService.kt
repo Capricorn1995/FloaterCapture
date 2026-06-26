@@ -67,6 +67,14 @@ class DownloadService : Service() {
             }
             ACTION_PAUSE_ALL -> pauseAll()
             ACTION_RESUME_ALL -> resumeAll()
+            ACTION_PAUSE -> {
+                val taskId = intent.getStringExtra(EXTRA_TASK_ID)
+                if (taskId != null) pauseTask(taskId)
+            }
+            ACTION_RESUME -> {
+                val taskId = intent.getStringExtra(EXTRA_TASK_ID)
+                if (taskId != null) resumeTask(taskId)
+            }
         }
         return START_NOT_STICKY
     }
@@ -164,45 +172,47 @@ class DownloadService : Service() {
             val source = body.source()
             val sink = outputFile.sink().buffer()
 
-            var downloadedBytes = 0L
-            val buffer = okio.Buffer()
-            var lastUpdateTime = System.currentTimeMillis()
+            sink.use { bufferedSink ->
+                source.use { bufferedSource ->
+                    var downloadedBytes = 0L
+                    val buffer = okio.Buffer()
+                    var lastUpdateTime = System.currentTimeMillis()
 
-            try {
-                while (!source.exhausted()) {
-                    val bytesRead = source.read(buffer, BUFFER_SIZE.toLong())
-                    if (bytesRead == -1L) break
+                    try {
+                        while (!bufferedSource.exhausted()) {
+                            val bytesRead = bufferedSource.read(buffer, BUFFER_SIZE.toLong())
+                            if (bytesRead == -1L) break
 
-                    downloadedBytes += bytesRead
-                    sink.write(buffer, bytesRead)
+                            downloadedBytes += bytesRead
+                            bufferedSink.write(buffer, bytesRead)
 
-                    // 更新进度（限制更新频率为 200ms）
-                    val now = System.currentTimeMillis()
-                    if (now - lastUpdateTime > PROGRESS_UPDATE_INTERVAL_MS) {
-                        val progress = if (totalBytes > 0) {
-                            ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
-                        } else {
-                            // 无法获取总大小时使用估算进度
-                            (-1).coerceIn(0, 100)
+                            // 更新进度（限制更新频率为 200ms）
+                            val now = System.currentTimeMillis()
+                            if (now - lastUpdateTime > PROGRESS_UPDATE_INTERVAL_MS) {
+                                val progress = if (totalBytes > 0) {
+                                    ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
+                                } else {
+                                    // 无法获取总大小时使用估算进度
+                                    (-1).coerceIn(0, 100)
+                                }
+                                val progressTask = task.copy(
+                                    state = DownloadState.Downloading,
+                                    downloadedBytes = downloadedBytes,
+                                    totalBytes = totalBytes,
+                                    progress = progress
+                                )
+                                downloadRepository.update(progressTask)
+
+                                // 更新通知
+                                updateProgressNotification(task.fileName, progress)
+
+                                lastUpdateTime = now
+                            }
                         }
-                        val progressTask = task.copy(
-                            state = DownloadState.Downloading,
-                            downloadedBytes = downloadedBytes,
-                            totalBytes = totalBytes,
-                            progress = progress
-                        )
-                        downloadRepository.update(progressTask)
-
-                        // 更新通知
-                        updateProgressNotification(task.fileName, progress)
-
-                        lastUpdateTime = now
+                    } finally {
+                        bufferedSink.flush()
                     }
                 }
-            } finally {
-                sink.flush()
-                sink.close()
-                source.close()
             }
 
             body.close()
@@ -318,6 +328,54 @@ class DownloadService : Service() {
     }
 
     /**
+     * 暂停单个下载任务。
+     */
+    private fun pauseTask(taskId: String) {
+        downloadQueue[taskId]?.let { job ->
+            if (job.isActive) {
+                job.cancel()
+            }
+        }
+        downloadQueue.remove(taskId)
+
+        serviceScope.launch {
+            try {
+                downloadRepository.getById(taskId).first()?.let { task ->
+                    if (task.state == DownloadState.Downloading || task.state == DownloadState.Pending) {
+                        downloadRepository.update(task.copy(state = DownloadState.Paused))
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
+     * 恢复单个下载任务。
+     */
+    private fun resumeTask(taskId: String) {
+        serviceScope.launch {
+            try {
+                downloadRepository.getById(taskId).first()?.let { task ->
+                    if (task.state == DownloadState.Paused || task.state == DownloadState.Failed) {
+                        val newTask = task.copy(state = DownloadState.Pending)
+                        downloadRepository.update(newTask)
+                        val mediaItem = MediaItem(
+                            type = task.mediaType,
+                            url = task.url
+                        )
+                        val job = launchDownloadTask(newTask, mediaItem)
+                        downloadQueue[taskId] = job
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
      * 恢复所有暂停的下载任务。
      */
     private fun resumeAll() {
@@ -412,7 +470,10 @@ class DownloadService : Service() {
         const val ACTION_START_DOWNLOAD = "com.floatercapture.action.START_DOWNLOAD"
         const val ACTION_PAUSE_ALL = "com.floatercapture.action.PAUSE_ALL"
         const val ACTION_RESUME_ALL = "com.floatercapture.action.RESUME_ALL"
+        const val ACTION_PAUSE = "com.floatercapture.action.PAUSE"
+        const val ACTION_RESUME = "com.floatercapture.action.RESUME"
         const val EXTRA_MEDIA_ITEMS_JSON = "extra_media_items_json"
+        const val EXTRA_TASK_ID = "extra_task_id"
 
         const val NOTIFICATION_ID_DOWNLOAD = 1002
 
@@ -478,6 +539,28 @@ class DownloadService : Service() {
         fun resumeAll(context: Context) {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_RESUME_ALL
+            }
+            context.startService(intent)
+        }
+
+        /**
+         * 暂停单个下载任务。
+         */
+        fun pauseTask(context: Context, taskId: String) {
+            val intent = Intent(context, DownloadService::class.java).apply {
+                action = ACTION_PAUSE
+                putExtra(EXTRA_TASK_ID, taskId)
+            }
+            context.startService(intent)
+        }
+
+        /**
+         * 恢复单个下载任务。
+         */
+        fun resumeTask(context: Context, taskId: String) {
+            val intent = Intent(context, DownloadService::class.java).apply {
+                action = ACTION_RESUME
+                putExtra(EXTRA_TASK_ID, taskId)
             }
             context.startService(intent)
         }

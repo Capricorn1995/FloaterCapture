@@ -6,10 +6,10 @@ import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.floatercapture.data.model.AppRule
 import com.floatercapture.data.model.MediaItem
 import com.floatercapture.data.model.MediaType
 import com.floatercapture.data.repository.MediaRepository
-import com.floatercapture.util.AppRule
 import com.floatercapture.util.AppRulesLoader
 import com.floatercapture.util.FileHelper
 import kotlinx.coroutines.CoroutineScope

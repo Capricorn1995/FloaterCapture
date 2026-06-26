@@ -74,8 +74,8 @@ fun DownloadListScreen(navController: NavController) {
             when (selectedTabIndex) {
                 0 -> ActiveDownloadsTab(
                     tasks = activeTasks,
-                    onPause = { task -> DownloadService.pauseAll(context) },
-                    onResume = { task -> DownloadService.resumeAll(context) },
+                    onPause = { task -> DownloadService.pauseTask(context, task.id) },
+                    onResume = { task -> DownloadService.resumeTask(context, task.id) },
                     onCancelAll = { DownloadService.pauseAll(context) },
                 )
                 1 -> CompletedDownloadsTab(

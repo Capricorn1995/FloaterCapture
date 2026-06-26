@@ -12,19 +12,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.floatercapture.*
+import com.floatercapture.data.db.PreferencesManager
 import com.floatercapture.service.FloatingWindowService
 import com.floatercapture.service.MediaCaptureService
 import com.floatercapture.util.PermissionHelper
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController) {
     val context = FloaterApp.appContext
-    val isFloatingRunning = remember { mutableStateOf(FloatingWindowService.isRunning.value) }
+    val preferencesManager = remember { PreferencesManager(context) }
+    val scope = rememberCoroutineScope()
+
+    val isFloatingRunning by FloatingWindowService.isRunning.collectAsState()
     val isAccessibilityEnabled = remember { mutableStateOf(MediaCaptureService.isServiceEnabled(context)) }
-    val wifiOnly = remember { mutableStateOf(true) }
-    val downloadNotify = remember { mutableStateOf(true) }
-    val maxConcurrent = remember { mutableStateOf(3) }
+
+    // 从 DataStore 读取持久化设置
+    val wifiOnly by preferencesManager.wifiOnly.collectAsState(initial = false)
+    val downloadNotify by preferencesManager.downloadNotify.collectAsState(initial = true)
+    val maxConcurrent by preferencesManager.maxConcurrent.collectAsState(initial = 3)
+    val darkMode by preferencesManager.darkMode.collectAsState(initial = false)
 
     var concurrentExpanded by remember { mutableStateOf(false) }
     val concurrentOptions = listOf(1, 2, 3, 5)
@@ -53,15 +61,14 @@ fun SettingsScreen(navController: NavController) {
                     SwitchRow(
                         icon = Icons.Default.Visibility,
                         title = "悬浮窗",
-                        subtitle = if (isFloatingRunning.value) "运行中" else "未运行",
-                        checked = isFloatingRunning.value,
+                        subtitle = if (isFloatingRunning) "运行中" else "未运行",
+                        checked = isFloatingRunning,
                         onCheckedChange = {
-                            if (isFloatingRunning.value) {
+                            if (isFloatingRunning) {
                                 FloatingWindowService.stopService(context)
                             } else {
                                 FloatingWindowService.startService(context)
                             }
-                            isFloatingRunning.value = FloatingWindowService.isRunning.value
                         },
                     )
                 }
@@ -127,13 +134,13 @@ fun SettingsScreen(navController: NavController) {
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "最大并发下载数",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                )
-                                Text(
-                                    text = "$maxConcurrent.value",
-                                    style = MaterialTheme.typography.bodySmall,
+                        Text(
+                            text = "最大并发下载数",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            text = "$maxConcurrent",
+                            style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -146,7 +153,7 @@ fun SettingsScreen(navController: NavController) {
                                 DropdownMenuItem(
                                     text = { Text("$option") },
                                     onClick = {
-                                        maxConcurrent.value = option
+                                        scope.launch { preferencesManager.setMaxConcurrent(option) }
                                         concurrentExpanded = false
                                     },
                                 )
@@ -162,8 +169,10 @@ fun SettingsScreen(navController: NavController) {
                         icon = Icons.Default.Wifi,
                         title = "仅WiFi下载",
                         subtitle = "仅在WiFi网络下下载文件",
-                        checked = wifiOnly.value,
-                        onCheckedChange = { wifiOnly.value = it },
+                        checked = wifiOnly,
+                        onCheckedChange = {
+                            scope.launch { preferencesManager.setWifiOnly(it) }
+                        },
                     )
                 }
             }
@@ -179,13 +188,34 @@ fun SettingsScreen(navController: NavController) {
                         icon = Icons.Default.Notifications,
                         title = "下载完成通知",
                         subtitle = "下载任务完成时发送通知",
-                        checked = downloadNotify.value,
-                        onCheckedChange = { downloadNotify.value = it },
+                        checked = downloadNotify,
+                        onCheckedChange = {
+                            scope.launch { preferencesManager.setDownloadNotify(it) }
+                        },
                     )
                 }
             }
 
-            // 分区4 - 关于
+            // 分区4 - 外观设置
+            item {
+                SectionHeader("外观设置")
+            }
+
+            item {
+                SettingsCard {
+                    SwitchRow(
+                        icon = Icons.Default.DarkMode,
+                        title = "深色模式",
+                        subtitle = "使用深色主题",
+                        checked = darkMode,
+                        onCheckedChange = {
+                            scope.launch { preferencesManager.setDarkMode(it) }
+                        },
+                    )
+                }
+            }
+
+            // 分区5 - 关于
             item {
                 SectionHeader("关于")
             }
