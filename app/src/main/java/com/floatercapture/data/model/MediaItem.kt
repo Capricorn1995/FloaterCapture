@@ -12,7 +12,9 @@ data class MediaItem(
     val thumbnailUrl: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val isDownloaded: Boolean = false,
-    val localFilePath: String = ""
+    val localFilePath: String = "",
+    // 节点位置信息（用于截屏裁切）
+    val nodeBounds: String = ""
 )
 
 enum class MediaType(val displayName: String, val mimeType: String) {

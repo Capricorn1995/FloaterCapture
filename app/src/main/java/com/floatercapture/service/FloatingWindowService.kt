@@ -203,11 +203,15 @@ class FloatingWindowService : Service() {
         }
         container.addView(fab)
 
-        // 控制面板
+        // 控制面板 - 宽度设为屏幕宽度的 80%，最大 320dp
         val cardPanel = buildControlPanelProgrammatically()
         cardPanel.id = R.id.card_control_panel
         cardPanel.visibility = View.GONE
-        val cardLp = FrameLayout.LayoutParams(dpToPx(280), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getMetrics(metrics)
+        val panelWidth = (metrics.widthPixels * 0.8f).toInt().coerceAtMost(dpToPx(320))
+        val cardLp = FrameLayout.LayoutParams(panelWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.CENTER
         }
         container.addView(cardPanel, cardLp)
@@ -318,10 +322,13 @@ class FloatingWindowService : Service() {
             setBackgroundColor(android.graphics.Color.parseColor("#CAC4D0"))
         })
 
-        // 按钮行
-        val btnRow = LinearLayout(ctx).apply {
+        // 按钮行 - 两行布局避免按钮被裁切
+        val btnRow1 = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(4)
+            }
         }
         val btnClear = com.google.android.material.button.MaterialButton(ctx).apply {
             id = R.id.btn_clear
@@ -336,9 +343,32 @@ class FloatingWindowService : Service() {
             text = getString(R.string.btn_download_all)
             isEnabled = false
         }
-        btnRow.addView(btnClear)
-        btnRow.addView(btnDownload)
-        rootLayout.addView(btnRow)
+        btnRow1.addView(btnClear)
+        btnRow1.addView(btnDownload)
+        rootLayout.addView(btnRow1)
+
+        // 第二行 - 截屏/刷新按钮
+        val btnRow2 = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        val btnScreenshot = com.google.android.material.button.MaterialButton(ctx).apply {
+            id = R.id.btn_screenshot
+            text = "📷 截屏保存"
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dpToPx(4)
+            }
+        }
+        val btnRefresh = com.google.android.material.button.MaterialButton(ctx).apply {
+            id = R.id.btn_refresh
+            text = "🔄 刷新嗅探"
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dpToPx(4)
+            }
+        }
+        btnRow2.addView(btnScreenshot)
+        btnRow2.addView(btnRefresh)
+        rootLayout.addView(btnRow2)
 
         card.addView(rootLayout)
         return card
@@ -475,6 +505,16 @@ class FloatingWindowService : Service() {
             openMainActivity()
         }
 
+        // 截屏按钮
+        cardPanel.findViewById<View>(R.id.btn_screenshot)?.setOnClickListener {
+            onScreenshotClicked()
+        }
+
+        // 刷新嗅探按钮
+        cardPanel.findViewById<View>(R.id.btn_refresh)?.setOnClickListener {
+            onRefreshCaptureClicked()
+        }
+
         // 收起面板按钮
         cardPanel.findViewById<View>(R.id.btn_collapse)?.setOnClickListener {
             collapseControlPanel()
@@ -599,6 +639,33 @@ class FloatingWindowService : Service() {
     // ========================
 
     /**
+     * 截屏保存按钮
+     * 通过打开主 Activity 启动 MediaProjection 授权流程
+     */
+    private fun onScreenshotClicked() {
+        try {
+            // 收起控制面板
+            collapseControlPanel()
+            Toast.makeText(this, "截屏功能需要在主界面授权", Toast.LENGTH_SHORT).show()
+            openMainActivity()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "截屏启动失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * 刷新嗅探按钮
+     * 通知 MediaCaptureService 清空去重缓存并重新扫描当前窗口
+     */
+    private fun onRefreshCaptureClicked() {
+        val intent = Intent(ACTION_RESET_CAPTURE)
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this)
+            .sendBroadcast(intent)
+        Toast.makeText(this, "已重置嗅探，请重新打开其他 App 触发", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
      * 下载全部：启动 DownloadService 下载所有媒体项
      */
     private fun onDownloadAllClicked() {
@@ -650,6 +717,7 @@ class FloatingWindowService : Service() {
         const val ACTION_TOGGLE = "com.floatercapture.action.TOGGLE_FLOATING"
 
         const val ACTION_MEDIA_FOUND = "com.floatercapture.ACTION_MEDIA_FOUND"
+        const val ACTION_RESET_CAPTURE = "com.floatercapture.ACTION_RESET_CAPTURE"
         const val EXTRA_MEDIA_TYPE = "extra_media_type"
         const val EXTRA_MEDIA_ID = "extra_media_id"
 

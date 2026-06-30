@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Floating window control panel button ids -->
+    <item name="fab_capture" type="id" />
+    <item name="card_control_panel" type="id" />
+    <item name="tv_panel_title" type="id" />
+    <item name="tv_media_count" type="id" />
+    <item name="tv_image_count" type="id" />
+    <item name="tv_video_count" type="id" />
+    <item name="tv_audio_count" type="id" />
+    <item name="tv_other_count" type="id" />
+    <item name="btn_download_all" type="id" />
+    <item name="btn_clear" type="id" />
+    <item name="btn_settings" type="id" />
+    <item name="btn_collapse" type="id" />
+    <item name="btn_screenshot" type="id" />
+    <item name="btn_refresh" type="id" />
+</resources>
