@@ -10,24 +10,27 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.floatercapture.FloaterApp
 import com.floatercapture.data.model.MediaItem
 import com.floatercapture.data.model.MediaType
 import com.floatercapture.data.repository.MediaRepository
 import com.floatercapture.ui.theme.*
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaListScreen(navController: NavController) {
-    val context = FloaterApp.appContext
     val mediaRepository = remember { MediaRepository() }
     val scope = rememberCoroutineScope()
     val allItems by mediaRepository.getAll().collectAsState(initial = emptyList())
@@ -37,12 +40,10 @@ fun MediaListScreen(navController: NavController) {
     var showTypeFilter by remember { mutableStateOf(false) }
     var showAppFilter by remember { mutableStateOf(false) }
 
-    // 获取所有来源 App 列表
     val allApps = remember(allItems) {
         allItems.map { it.sourceAppName.ifEmpty { it.sourcePackage } }.distinct().sorted()
     }
 
-    // 按时间和筛选条件过滤
     val filteredItems = remember(allItems, selectedType, selectedApp) {
         allItems
             .filter { selectedType == null || it.type == selectedType }
@@ -63,143 +64,68 @@ fun MediaListScreen(navController: NavController) {
             TopAppBar(
                 title = { Text("捕获历史") },
                 actions = {
-                    // 类型筛选
                     Box {
                         IconButton(onClick = { showTypeFilter = true }) {
                             Icon(Icons.Default.FilterList, contentDescription = "筛选")
                         }
-                        DropdownMenu(
-                            expanded = showTypeFilter,
-                            onDismissRequest = { showTypeFilter = false }
-                        ) {
+                        DropdownMenu(expanded = showTypeFilter, onDismissRequest = { showTypeFilter = false }) {
                             typeOptions.forEach { (type, label) ->
                                 DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            label,
-                                            fontWeight = if (selectedType == type) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    },
-                                    onClick = {
-                                        selectedType = type
-                                        showTypeFilter = false
-                                    },
-                                    leadingIcon = {
-                                        if (selectedType == type) {
-                                            Icon(Icons.Default.Check, contentDescription = null)
-                                        }
-                                    }
+                                    text = { Text(label, fontWeight = if (selectedType == type) FontWeight.Bold else FontWeight.Normal) },
+                                    onClick = { selectedType = type; showTypeFilter = false },
+                                    leadingIcon = { if (selectedType == type) Icon(Icons.Default.Check, null) }
                                 )
                             }
                         }
                     }
-                    // App 筛选
                     Box {
-                        IconButton(onClick = { showAppFilter = true }) {
-                            Icon(Icons.Default.Apps, contentDescription = "按App筛选")
-                        }
-                        DropdownMenu(
-                            expanded = showAppFilter,
-                            onDismissRequest = { showAppFilter = false }
-                        ) {
+                        IconButton(onClick = { showAppFilter = true }) { Icon(Icons.Default.Apps, "按App") }
+                        DropdownMenu(expanded = showAppFilter, onDismissRequest = { showAppFilter = false }) {
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "全部来源",
-                                        fontWeight = if (selectedApp == null) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                },
-                                onClick = {
-                                    selectedApp = null
-                                    showAppFilter = false
-                                },
-                                leadingIcon = {
-                                    if (selectedApp == null) {
-                                        Icon(Icons.Default.Check, contentDescription = null)
-                                    }
-                                }
+                                text = { Text("全部来源", fontWeight = if (selectedApp == null) FontWeight.Bold else FontWeight.Normal) },
+                                onClick = { selectedApp = null; showAppFilter = false },
+                                leadingIcon = { if (selectedApp == null) Icon(Icons.Default.Check, null) }
                             )
                             allApps.forEach { app ->
                                 DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            app,
-                                            fontWeight = if (selectedApp == app) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    },
-                                    onClick = {
-                                        selectedApp = app
-                                        showAppFilter = false
-                                    },
-                                    leadingIcon = {
-                                        if (selectedApp == app) {
-                                            Icon(Icons.Default.Check, contentDescription = null)
-                                        }
-                                    }
+                                    text = { Text(app, fontWeight = if (selectedApp == app) FontWeight.Bold else FontWeight.Normal) },
+                                    onClick = { selectedApp = app; showAppFilter = false },
+                                    leadingIcon = { if (selectedApp == app) Icon(Icons.Default.Check, null) }
                                 )
                             }
                         }
                     }
-                    // 清空全部
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                mediaRepository.deleteAll()
-                            }
-                        }
-                    ) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = "清空全部")
+                    IconButton(onClick = { scope.launch { mediaRepository.deleteAll() } }) {
+                        Icon(Icons.Default.DeleteSweep, "清空")
                     }
                 }
             )
         }
     ) { innerPadding ->
         if (filteredItems.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Inbox,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (allItems.isEmpty()) "暂无捕获内容" else "无匹配的媒体文件",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Icon(Icons.Default.Inbox, null, Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                    Spacer(Modifier.height(8.dp))
+                    Text(if (allItems.isEmpty()) "暂无捕获内容，开启悬浮窗开始使用" else "无匹配的媒体文件",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             return@Scaffold
         }
 
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
+            Modifier.fillMaxSize().padding(innerPadding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 统计信息
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                    )
+                    Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                         StatChip("图片", allItems.count { it.type == MediaType.IMAGE }, Icons.Default.Image)
                         StatChip("视频", allItems.count { it.type == MediaType.VIDEO }, Icons.Default.Videocam)
                         StatChip("文档", allItems.count { it.type == MediaType.DOCUMENT }, Icons.Default.Description)
@@ -212,9 +138,7 @@ fun MediaListScreen(navController: NavController) {
                 MediaListItem(
                     item = item,
                     onClick = { navController.navigate("preview/${item.id}") },
-                    onDelete = {
-                        scope.launch { mediaRepository.delete(item.id) }
-                    }
+                    onDelete = { scope.launch { mediaRepository.delete(item.id) } }
                 )
             }
         }
@@ -224,127 +148,133 @@ fun MediaListScreen(navController: NavController) {
 @Composable
 private fun StatChip(label: String, count: Int, icon: ImageVector) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "$count",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
+        Text("$count", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
-            Spacer(modifier = Modifier.width(2.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Icon(icon, null, Modifier.size(14.dp))
+            Spacer(Modifier.width(2.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun MediaListItem(
-    item: MediaItem,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
-) {
-    val dateFormat = remember { SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()) }
-
+private fun MediaListItem(item: MediaItem, onClick: () -> Unit, onDelete: () -> Unit) {
+    val dateFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("删除确认") },
-            text = { Text("确定要删除这条记录吗？") },
+            text = { Text("确定删除这条记录吗？") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDelete()
-                        showDeleteDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = ErrorRed)
-                ) {
+                TextButton(onClick = { onDelete(); showDeleteDialog = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = ErrorRed)) {
                     Text("删除")
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
-                }
-            }
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("取消") } }
         )
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = getMediaTypeIcon(item.type),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
+    Card(Modifier.fillMaxWidth().clickable { onClick() }) {
+        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 缩略图区域
+            Box(
+                Modifier.size(56.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val thumbUrl = getThumbUrl(item)
+
+                if (thumbUrl != null) {
+                    AsyncImage(
+                        model = thumbUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(MaterialTheme.shapes.small),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    // 无缩略图时显示类型图标
+                    Icon(
+                        imageVector = getMediaTypeIcon(item.type),
+                        contentDescription = null,
+                        tint = when (item.type) {
+                            MediaType.IMAGE -> InfoBlue
+                            MediaType.VIDEO -> WarningOrange
+                            MediaType.DOCUMENT -> SuccessGreen
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        },
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = item.sourceAppName.ifEmpty { item.sourcePackage.ifEmpty { "未知来源" } },
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = item.sourceAppName.ifEmpty { item.sourcePackage.ifEmpty { "未知" } },
+                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = item.description.ifEmpty { item.url.take(50) },
+                    text = item.description.ifEmpty { item.url.take(60) },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = dateFormat.format(Date(item.timestamp)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = dateFormat.format(Date(item.timestamp)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    if (item.fileSize > 0) {
+                        Text(" · ", style = MaterialTheme.typography.labelSmall)
+                        Text(formatSize(item.fileSize), style = MaterialTheme.typography.labelSmall,
+                            color = SuccessGreen)
+                    }
+                    if (item.isDownloaded) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.DownloadDone, null, Modifier.size(14.dp), tint = SuccessGreen)
+                    }
+                }
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = item.type.displayName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                if (item.isDownloaded) {
-                    Icon(
-                        Icons.Default.DownloadDone,
-                        contentDescription = "已下载",
-                        tint = SuccessGreen,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                IconButton(
-                    onClick = { showDeleteDialog = true },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "删除",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+
+            Text(
+                text = item.type.displayName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(end = 8.dp)
+            )
+
+            IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Delete, null, Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
             }
         }
     }
+}
+
+private fun getThumbUrl(item: MediaItem): Any? {
+    // 如果已下载到本地，直接用本地路径
+    if (item.isDownloaded && item.localFilePath.isNotBlank()) {
+        val f = File(item.localFilePath)
+        if (f.exists()) return f
+    }
+
+    // 如果有真实 HTTP URL，用 Coil 加载
+    val url = item.url
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+        return url
+    }
+
+    // node:// 没有缩略图
+    return null
 }
 
 private fun getMediaTypeIcon(type: MediaType): ImageVector {
@@ -353,5 +283,13 @@ private fun getMediaTypeIcon(type: MediaType): ImageVector {
         MediaType.VIDEO -> Icons.Default.Videocam
         MediaType.DOCUMENT -> Icons.Default.Description
         MediaType.OTHER -> Icons.Default.InsertDriveFile
+    }
+}
+
+private fun formatSize(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "${bytes}B"
+        bytes < 1024 * 1024 -> "${bytes / 1024}KB"
+        else -> "${"%.1f".format(bytes.toDouble() / 1024 / 1024)}MB"
     }
 }

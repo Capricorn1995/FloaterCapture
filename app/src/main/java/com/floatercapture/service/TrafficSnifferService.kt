@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
+import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -13,48 +14,25 @@ import com.floatercapture.data.model.MediaItem
 import com.floatercapture.data.model.MediaType
 import com.floatercapture.data.repository.MediaRepository
 import kotlinx.coroutines.*
+import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.util.UUID
+import java.nio.ByteBuffer
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 class TrafficSnifferService : VpnService() {
 
     companion object {
         const val TAG = "TrafficSniffer"
-        const val VPN_MTU = 1500
-        const val VPN_ADDRESS = "10.0.0.2"
-        const val VPN_ROUTE = "0.0.0.0"
-        const val VPN_DNS = "8.8.8.8"
-        const val NOTIFICATION_ID = 3001
-        const val MAX_PACKET_SIZE = 65535
-
         const val ACTION_START = "com.floatercapture.action.VPN_START"
         const val ACTION_STOP = "com.floatercapture.action.VPN_STOP"
-
-        val CDN_PATTERNS = listOf(
-            "cdn", "cos", "oss", "img", "image", "video", "media", "pic", "photo",
-            "xhscdn", "sns-img", "sns-avatar", "pstatp", "douyincdn", "bytedns", "snssdk",
-            "sinaimg", "sinajs", "zhimg", "wxqcloud", "mmbiz", "qpic",
-            "hdslb", "bilivideo", "yximgs", "kwimgs", "kscdn",
-            "alicdn", "taobaocdn", "tbcache", "360buyimg", "jdcdn",
-            "cdninstagram", "fbcdn", "twimg", "tdcdn", "ytimg", "googlevideo"
-        )
-
-        val MEDIA_EXTENSIONS = setOf(
-            "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif", "avif",
-            "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "3gp", "m3u8", "ts", "m4v",
-            "mp3", "wav", "aac", "ogg", "flac", "m4a"
-        )
 
         private val discoveredUrls = ConcurrentHashMap.newKeySet<String>()
         private var isRunning = false
 
         fun isRunning(): Boolean = isRunning
-
-        fun resetDiscoveredUrls() {
-            discoveredUrls.clear()
-        }
 
         fun start(context: android.content.Context) {
             val intent = Intent(context, TrafficSnifferService::class.java).apply {
@@ -80,6 +58,10 @@ class TrafficSnifferService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     @Volatile private var processing = false
 
+    // 媒体文件扩展名和 MIME 类型
+    private val imageExts = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif", "avif", "tiff")
+    private val videoExts = setOf("mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "3gp", "m4v")
+
     override fun onCreate() {
         super.onCreate()
         mediaRepository = MediaRepository()
@@ -98,103 +80,140 @@ class TrafficSnifferService : VpnService() {
         if (isRunning) return
         try {
             val builder = Builder()
-                .setSession("FloaterCapture Traffic Sniffer")
-                .addAddress(VPN_ADDRESS, 32)
-                .addRoute(VPN_ROUTE, 0)
-                .addDnsServer(VPN_DNS)
-                .setMtu(VPN_MTU)
+                .setSession("FloaterCapture")
+                .addAddress("10.0.0.2", 32)
+                .addRoute("0.0.0.0", 0)
+                .addDnsServer("8.8.8.8")
+                .setMtu(1500)
                 .setBlocking(true)
 
-            vpnInterface = builder.establish()
-                ?: throw IllegalStateException("VPN establishment failed")
-
+            vpnInterface = builder.establish() ?: throw Exception("VPN failed")
             isRunning = true
             Log.d(TAG, "VPN started")
 
-            startForeground(NOTIFICATION_ID, createNotification())
+            startForeground(3001, NotificationCompat.Builder(this, FloaterApp.CHANNEL_SERVICE)
+                .setContentTitle("FloaterCapture")
+                .setContentText("Traffic sniffing active")
+                .setSmallIcon(android.R.drawable.ic_menu_share)
+                .setOngoing(true)
+                .setContentIntent(PendingIntent.getActivity(this, 0,
+                    packageManager.getLaunchIntentForPackage(packageName),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+                .build())
 
             serviceScope.launch { processPackets() }
         } catch (e: Exception) {
-            Log.e(TAG, "VPN start failed", e)
+            Log.e(TAG, "VPN start error", e)
             isRunning = false
             stopSelf()
         }
     }
 
     private suspend fun processPackets() {
-        val vpnFd = vpnInterface ?: return
-        val input = FileInputStream(vpnFd.fileDescriptor)
-        val output = FileOutputStream(vpnFd.fileDescriptor)
-        val buffer = ByteArray(MAX_PACKET_SIZE)
+        val fd = vpnInterface ?: return
+        val input = FileInputStream(fd.fileDescriptor)
+        val output = FileOutputStream(fd.fileDescriptor)
+        val buf = ByteArray(65535)
+        processing = true
+
+        // 保存目录
+        val saveDir = File(getExternalFilesDir(null), "FloaterCapture/Sniffed")
+        if (!saveDir.exists()) saveDir.mkdirs()
 
         try {
-            processing = true
             while (processing) {
-                val length = input.read(buffer)
-                if (length <= 0) continue
+                val len = input.read(buf)
+                if (len <= 0) continue
 
-                val packet = buffer.copyOf(length)
-                val protocol = (packet[9].toInt() and 0xFF)
+                val packet = buf.copyOf(len)
+                val proto = (packet[9].toInt() and 0xFF)
+                if (proto != 6) { output.write(packet); continue } // TCP only
 
-                if (protocol != 6) {
-                    output.write(packet)
-                    continue
-                }
+                val ipHdr = (packet[0].toInt() and 0x0F) * 4
+                val tcpHdr = ((packet[ipHdr + 12].toInt() and 0xF0) shr 4) * 4
+                val dataOff = ipHdr + tcpHdr
+                if (len <= dataOff) { output.write(packet); continue }
 
-                val ipHeaderLen = (packet[0].toInt() and 0x0F) * 4
-                val tcpHeaderLen = ((packet[ipHeaderLen + 12].toInt() and 0xF0) shr 4) * 4
-                val dataOffset = ipHeaderLen + tcpHeaderLen
+                val payload = packet.copyOfRange(dataOff, len)
 
-                if (length <= dataOffset) {
-                    output.write(packet)
-                    continue
-                }
+                // 尝试从 payload 中提取 HTTP 响应并保存媒体数据
+                trySaveHttpMedia(payload, saveDir)
 
-                val payload = packet.copyOfRange(dataOffset, length)
-                extractHttpInfo(payload)
-                output.write(packet)
+                output.write(packet) // 直通
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Packet processing error", e)
+            Log.e(TAG, "Packet error", e)
         }
     }
 
-    private fun extractHttpInfo(payload: ByteArray) {
+    /**
+     * 核心：从 TCP payload 中提取 HTTP 响应，如果 Content-Type 是图片/视频，直接保存文件
+     */
+    private fun trySaveHttpMedia(payload: ByteArray, saveDir: File) {
         try {
-            val maxLen = payload.size.coerceAtMost(8192)
+            val maxLen = payload.size.coerceAtMost(16384)
             val data = String(payload, 0, maxLen, Charsets.UTF_8)
 
-            if (!data.startsWith("GET ") && !data.startsWith("POST ")) return
+            // 只处理 HTTP 响应
+            if (!data.startsWith("HTTP/")) return
 
-            val hostMatch = Regex("Host:\\s*([^\\r\\n]+)", RegexOption.IGNORE_CASE).find(data) ?: return
-            val host = hostMatch.groupValues[1].trim()
+            // 提取 Content-Type
+            val ctMatch = Regex("Content-Type:\\s*([^\\r\\n]+)", RegexOption.IGNORE_CASE).find(data)
+            val contentType = ctMatch?.groupValues?.get(1)?.trim()?.lowercase() ?: return
 
-            val pathMatch = Regex("(GET|POST)\\s+([^\\s]+)\\s+HTTP").find(data) ?: return
-            val path = pathMatch.groupValues[2]
+            val isImage = contentType.startsWith("image/") && contentType != "image/svg+xml"
+            val isVideo = contentType.startsWith("video/")
 
-            val fullUrl = "http://$host$path"
+            if (!isImage && !isVideo) return
 
-            if (!isLikelyMediaUrl(fullUrl, host)) return
-            if (!discoveredUrls.add(fullUrl)) return
+            // 找到 HTTP body 起始位置（\r\n\r\n）
+            val bodyStart = findHttpBodyStart(payload)
+            if (bodyStart < 0 || bodyStart >= payload.size) return
 
-            val type = inferType(fullUrl)
+            val mediaData = payload.copyOfRange(bodyStart, payload.size)
+            if (mediaData.size < 100) return // 太小忽略
 
-            Log.d(TAG, "sniffed: $fullUrl")
+            // 生成文件名
+            val ext = when {
+                contentType.contains("jpeg") || contentType.contains("jpg") -> "jpg"
+                contentType.contains("png") -> "png"
+                contentType.contains("gif") -> "gif"
+                contentType.contains("webp") -> "webp"
+                contentType.contains("mp4") -> "mp4"
+                contentType.contains("webm") -> "webm"
+                contentType.contains("avi") -> "avi"
+                else -> "dat"
+            }
 
-            val mediaItem = MediaItem(
+            val ts = SimpleDateFormat("yyyyMMdd_HHmmssSSS", Locale.US).format(Date())
+            val fileName = "sniffed_${ts}.${ext}"
+            val file = File(saveDir, fileName)
+
+            // 保存文件
+            file.writeBytes(mediaData)
+
+            val type = if (isImage) MediaType.IMAGE else MediaType.VIDEO
+
+            Log.d(TAG, "Saved: $fileName (${mediaData.size} bytes, $contentType)")
+
+            // 创建 MediaItem 并通知
+            val item = MediaItem(
                 id = UUID.randomUUID().toString(),
                 type = type,
-                url = fullUrl,
+                url = file.absolutePath,
                 sourcePackage = "network",
-                sourceAppName = "network",
-                description = "VPN: ${fullUrl.take(80)}",
-                mimeType = inferMimeType(fullUrl),
+                sourceAppName = "流量抓包",
+                description = "VPN: $fileName (${formatSize(mediaData.size.toLong())})",
+                mimeType = contentType,
+                fileSize = mediaData.size.toLong(),
+                isDownloaded = true,
+                localFilePath = file.absolutePath,
                 timestamp = System.currentTimeMillis()
             )
 
             serviceScope.launch {
                 try {
-                    val id = mediaRepository.insert(mediaItem)
+                    val id = mediaRepository.insert(item)
                     val intent = Intent(FloatingWindowService.ACTION_MEDIA_FOUND).apply {
                         putExtra(FloatingWindowService.EXTRA_MEDIA_TYPE, type.name)
                         putExtra(FloatingWindowService.EXTRA_MEDIA_ID, id)
@@ -202,7 +221,7 @@ class TrafficSnifferService : VpnService() {
                     LocalBroadcastManager.getInstance(this@TrafficSnifferService)
                         .sendBroadcast(intent)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Save failed", e)
+                    Log.e(TAG, "Insert error", e)
                 }
             }
         } catch (e: Exception) {
@@ -210,61 +229,22 @@ class TrafficSnifferService : VpnService() {
         }
     }
 
-    private fun isLikelyMediaUrl(url: String, host: String): Boolean {
-        val ext = url.substringAfterLast('.', "").substringBefore('?').substringBefore('#').lowercase()
-        if (ext in MEDIA_EXTENSIONS) return true
-
-        val hostLower = host.lowercase()
-        for (pattern in CDN_PATTERNS) {
-            if (hostLower.contains(pattern)) return true
+    private fun findHttpBodyStart(data: ByteArray): Int {
+        for (i in 0 until data.size - 3) {
+            if (data[i] == 0x0D.toByte() && data[i+1] == 0x0A.toByte() &&
+                data[i+2] == 0x0D.toByte() && data[i+3] == 0x0A.toByte()) {
+                return i + 4
+            }
         }
-
-        val path = url.lowercase()
-        for (keyword in listOf("/img/", "/image/", "/video/", "/photo/", "/media/",
-            "/pic/", "/upload/", "/thumbnail/", "/avatar/", "/cover/")) {
-            if (path.contains(keyword)) return true
-        }
-
-        return false
+        return -1
     }
 
-    private fun inferType(url: String): MediaType {
-        val ext = url.substringAfterLast('.', "").substringBefore('?').substringBefore('#').lowercase()
-        return when (ext) {
-            "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "3gp", "m3u8", "ts", "m4v" -> MediaType.VIDEO
-            "mp3", "wav", "aac", "ogg", "flac", "m4a" -> MediaType.OTHER
-            else -> MediaType.IMAGE
+    private fun formatSize(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+            else -> "${"%.1f".format(bytes.toDouble() / 1024 / 1024)} MB"
         }
-    }
-
-    private fun inferMimeType(url: String): String {
-        val ext = url.substringAfterLast('.', "").substringBefore('?').substringBefore('#').lowercase()
-        return when (ext) {
-            "jpg", "jpeg" -> "image/jpeg"
-            "png" -> "image/png"
-            "gif" -> "image/gif"
-            "webp" -> "image/webp"
-            "mp4" -> "video/mp4"
-            "mp3" -> "audio/mpeg"
-            "m3u8" -> "application/x-mpegURL"
-            else -> "application/octet-stream"
-        }
-    }
-
-    private fun createNotification(): Notification {
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0,
-            packageManager.getLaunchIntentForPackage(packageName),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        return NotificationCompat.Builder(this, FloaterApp.CHANNEL_SERVICE)
-            .setContentTitle("FloaterCapture traffic sniffer")
-            .setContentText("Monitoring network media")
-            .setSmallIcon(android.R.drawable.ic_menu_share)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setContentIntent(pendingIntent)
-            .build()
     }
 
     private fun stopVpn() {
@@ -275,7 +255,6 @@ class TrafficSnifferService : VpnService() {
         vpnInterface = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        Log.d(TAG, "VPN stopped")
     }
 
     override fun onDestroy() {

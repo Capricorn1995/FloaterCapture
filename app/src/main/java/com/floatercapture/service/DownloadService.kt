@@ -58,25 +58,42 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_START_DOWNLOAD -> {
-                val itemsJson = intent.getStringExtra(EXTRA_MEDIA_ITEMS_JSON)
-                if (itemsJson != null) {
-                    handleStartDownload(itemsJson)
+        try {
+            when (intent?.action) {
+                ACTION_START_DOWNLOAD -> {
+                    val itemsJson = intent.getStringExtra(EXTRA_MEDIA_ITEMS_JSON)
+                    if (itemsJson != null) {
+                        handleStartDownload(itemsJson)
+                    }
+                }
+                ACTION_PAUSE_ALL -> pauseAll()
+                ACTION_RESUME_ALL -> resumeAll()
+                ACTION_PAUSE -> {
+                    val taskId = intent.getStringExtra(EXTRA_TASK_ID)
+                    if (taskId != null) pauseTask(taskId)
+                }
+                ACTION_RESUME -> {
+                    val taskId = intent.getStringExtra(EXTRA_TASK_ID)
+                    if (taskId != null) resumeTask(taskId)
+                }
+                else -> {
+                    // 没有 action 时确保前台服务运行
+                    ensureForeground()
                 }
             }
-            ACTION_PAUSE_ALL -> pauseAll()
-            ACTION_RESUME_ALL -> resumeAll()
-            ACTION_PAUSE -> {
-                val taskId = intent.getStringExtra(EXTRA_TASK_ID)
-                if (taskId != null) pauseTask(taskId)
-            }
-            ACTION_RESUME -> {
-                val taskId = intent.getStringExtra(EXTRA_TASK_ID)
-                if (taskId != null) resumeTask(taskId)
-            }
+        } catch (e: Exception) {
+            android.util.Log.e("DownloadService", "onStartCommand error", e)
         }
-        return START_NOT_STICKY
+        return START_STICKY
+    }
+
+    private fun ensureForeground() {
+        try {
+            val notification = NotificationHelper.createDownloadProgressNotification(this, "准备中", 0)
+            startForeground(NOTIFICATION_ID_DOWNLOAD, notification)
+        } catch (e: Exception) {
+            android.util.Log.e("DownloadService", "ensureForeground error", e)
+        }
     }
 
     /**
