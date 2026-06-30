@@ -178,10 +178,14 @@ class FloatingWindowService : Service() {
      */
     private fun buildFloatingWindowProgrammatically(): View {
         val ctx = themedContext
+        // 容器填满整个屏幕，使 panel 可以居中显示
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getMetrics(metrics)
         val container = FrameLayout(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                metrics.widthPixels,
+                metrics.heightPixels
             )
         }
 
@@ -190,7 +194,7 @@ class FloatingWindowService : Service() {
             id = R.id.fab_capture
             val sizePx = dpToPx(56)
             layoutParams = FrameLayout.LayoutParams(sizePx, sizePx).apply {
-                gravity = Gravity.CENTER
+                gravity = Gravity.TOP or Gravity.START
             }
             setImageResource(android.R.drawable.ic_menu_camera)
             imageTintList = ColorStateList.valueOf(
@@ -203,16 +207,14 @@ class FloatingWindowService : Service() {
         }
         container.addView(fab)
 
-        // 控制面板 - 宽度设为屏幕宽度的 80%，最大 320dp
+        // 控制面板 - 宽度设为屏幕宽度的 75%，最大 320dp
         val cardPanel = buildControlPanelProgrammatically()
         cardPanel.id = R.id.card_control_panel
         cardPanel.visibility = View.GONE
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getMetrics(metrics)
-        val panelWidth = (metrics.widthPixels * 0.8f).toInt().coerceAtMost(dpToPx(320))
+        val panelWidth = (metrics.widthPixels * 0.75f).toInt().coerceAtMost(dpToPx(320))
         val cardLp = FrameLayout.LayoutParams(panelWidth, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.CENTER
+            setMargins(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
         }
         container.addView(cardPanel, cardLp)
 

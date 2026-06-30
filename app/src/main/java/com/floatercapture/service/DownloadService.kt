@@ -140,6 +140,15 @@ class DownloadService : Service() {
      * 核心下载逻辑：使用 OkHttp 下载文件，流式写入磁盘。
      */
     private suspend fun downloadFile(task: DownloadTask, mediaItem: MediaItem) {
+        // node:// 是节点驱动捕获的资源，没有真实 URL，无法下载
+        if (task.url.startsWith("node://")) {
+            handleDownloadError(
+                task,
+                IllegalStateException("此资源为节点捕获，无 URL。请在详情页使用「截屏保存」功能。")
+            )
+            return
+        }
+
         // 更新任务状态为下载中
         val downloadingTask = task.copy(state = DownloadState.Downloading)
         downloadRepository.update(downloadingTask)

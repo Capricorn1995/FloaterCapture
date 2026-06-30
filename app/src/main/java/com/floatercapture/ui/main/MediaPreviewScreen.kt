@@ -1,7 +1,6 @@
 package com.floatercapture.ui.main
 
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,6 +29,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
+private const val NODE_URI_PREFIX = "node://"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaPreviewScreen(
@@ -42,6 +42,8 @@ fun MediaPreviewScreen(
     val scope = rememberCoroutineScope()
     val mediaItem by mediaRepository.getById(mediaId).collectAsState(initial = null)
 
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
     val isDownloaded = remember(mediaItem) {
         mediaItem?.let { item ->
             val file = File(item.localFilePath)
@@ -49,12 +51,16 @@ fun MediaPreviewScreen(
         } ?: false
     }
 
+    val isNodeItem = remember(mediaItem) {
+        mediaItem?.url?.startsWith(NODE_URI_PREFIX) == true
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "媒体预览",
+                        text = if (isNodeItem) "节点资源" else "媒体预览",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -92,11 +98,47 @@ fun MediaPreviewScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(300.dp),
+                    .height(if (isNodeItem) 220.dp else 300.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                when (item.type) {
-                    MediaType.IMAGE -> {
+                when {
+                    isNodeItem -> {
+                        // 节点驱动捕获的媒体 - 显示一个占位 + 截屏说明
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CropOriginal,
+                                contentDescription = null,
+                                modifier = Modifier.size(80.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "节点驱动资源",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "此资源通过屏幕节点识别位置，点击下方「截屏保存」按钮可截取屏幕并按节点位置裁切。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            // 显示节点位置信息
+                            item.nodeBounds.takeIf { it.isNotBlank() }?.let { bounds ->
+                                Text(
+                                    text = "位置: $bounds",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                    item.type == MediaType.IMAGE -> {
                         AsyncImage(
                             model = item.localFilePath.ifEmpty { item.url },
                             contentDescription = "图片预览",
@@ -104,7 +146,7 @@ fun MediaPreviewScreen(
                             contentScale = ContentScale.Fit,
                         )
                     }
-                    MediaType.VIDEO -> {
+                    item.type == MediaType.VIDEO -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
                                 imageVector = Icons.Default.PlayCircle,
@@ -120,23 +162,7 @@ fun MediaPreviewScreen(
                             )
                         }
                     }
-                    MediaType.DOCUMENT -> {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Description,
-                                contentDescription = "文档文件",
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = item.description.ifEmpty { "文档文件" },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    MediaType.OTHER -> {
+                    else -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
                                 imageVector = Icons.Default.InsertDriveFile,
@@ -155,6 +181,24 @@ fun MediaPreviewScreen(
                 }
             }
 
+            // 状态消息（成功/失败提示）
+            statusMessage?.let { msg ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(
+                        text = msg,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
             Divider()
 
             // 详细信息卡片
@@ -170,9 +214,16 @@ fun MediaPreviewScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     DetailRow("来源App", item.sourceAppName.ifEmpty { "未知" })
-                    DetailRow("URL", item.url?.let { url -> if (url.length > 40) url.take(40) + "..." else url } ?: "无")
+                    DetailRow("类型", "${item.type.displayName}")
+                    if (isNodeItem) {
+                        DetailRow("节点位置", item.nodeBounds.ifEmpty { "未知" })
+                    } else {
+                        DetailRow("URL", if (item.url.length > 40) item.url.take(40) + "..." else item.url)
+                    }
                     DetailRow("时间戳", dateFormat.format(Date(item.timestamp)))
-                    DetailRow("文件大小", formatFileSize(item.fileSize))
+                    if (item.fileSize > 0) {
+                        DetailRow("文件大小", formatFileSize(item.fileSize))
+                    }
                     DetailRow("MIME类型", item.mimeType.ifEmpty { item.type.mimeType })
                 }
             }
@@ -182,19 +233,33 @@ fun MediaPreviewScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (!isDownloaded) {
+                if (isNodeItem) {
+                    // 节点资源：使用截屏裁切
+                    Button(
+                        onClick = {
+                            statusMessage = "请在主界面授权屏幕录制后，悬浮窗将自动截屏并按节点位置裁切"
+                            navController.popBackStack()
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("截屏保存", style = MaterialTheme.typography.labelMedium)
+                    }
+                } else if (!isDownloaded) {
                     Button(
                         onClick = {
                             DownloadService.startDownload(context, listOf(item))
+                            statusMessage = "已加入下载队列"
                         },
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("下载")
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("下载", style = MaterialTheme.typography.labelMedium)
                     }
                 } else {
                     OutlinedButton(
@@ -216,8 +281,8 @@ fun MediaPreviewScreen(
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.OpenInNew, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("打开")
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("打开", style = MaterialTheme.typography.labelMedium)
                     }
 
                     TextButton(
@@ -239,8 +304,6 @@ fun MediaPreviewScreen(
                         },
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("分享")
                     }
                 }
 
@@ -255,9 +318,9 @@ fun MediaPreviewScreen(
                         contentColor = ErrorRed,
                     ),
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("删除")
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("删除", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

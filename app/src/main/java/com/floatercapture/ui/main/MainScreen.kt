@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -35,7 +36,8 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(navController: NavController) {
-    val context = FloaterApp.appContext
+    val context = LocalContext.current
+    val appContext = FloaterApp.appContext
 
     // 使用 collectAsState 订阅 StateFlow，避免同步读取阻塞 UI
     val isFloatingRunning by FloatingWindowService.isRunning.collectAsState()
@@ -132,17 +134,25 @@ fun MainScreen(navController: NavController) {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
+                        val activity = context as? com.floatercapture.MainActivity
                         if (vpnRunning) {
-                            TrafficSnifferService.stop(context)
+                            activity?.stopVpnSniffer()
                             vpnRunning = false
                         } else {
-                            val prepareIntent = TrafficSnifferService.requestVpnPermission(context)
-                            if (prepareIntent != null) {
-                                prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(prepareIntent)
+                            if (activity != null) {
+                                activity.startVpnSniffer()
+                                // 稍后状态会从 Service 同步回来
+                                vpnRunning = !TrafficSnifferService.isRunning()
                             } else {
-                                TrafficSnifferService.start(context)
-                                vpnRunning = true
+                                // Fallback: 直接尝试
+                                val prepareIntent = TrafficSnifferService.requestVpnPermission(context)
+                                if (prepareIntent != null) {
+                                    prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(prepareIntent)
+                                } else {
+                                    TrafficSnifferService.start(context)
+                                    vpnRunning = true
+                                }
                             }
                         }
                     },

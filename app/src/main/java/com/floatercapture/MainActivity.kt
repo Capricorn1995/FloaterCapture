@@ -1,8 +1,11 @@
 package com.floatercapture
 
+import android.content.Intent
+import android.net.VpnService
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -13,11 +16,11 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.floatercapture.service.TrafficSnifferService
 import com.floatercapture.ui.main.DownloadListScreen
 import com.floatercapture.ui.main.MainScreen
 import com.floatercapture.ui.main.MediaListScreen
@@ -27,6 +30,26 @@ import com.floatercapture.ui.theme.FloaterCaptureTheme
 
 class MainActivity : ComponentActivity() {
 
+    private val vpnPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            // 用户授予 VPN 权限
+            android.widget.Toast.makeText(
+                this,
+                "VPN 授权成功，正在启动流量嗅探",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            TrafficSnifferService.start(this)
+        } else {
+            android.widget.Toast.makeText(
+                this,
+                "VPN 授权被拒绝，无法启动流量嗅探",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -35,6 +58,38 @@ class MainActivity : ComponentActivity() {
                 MainApp()
             }
         }
+    }
+
+    /**
+     * 启动 VPN 流量嗅探（含权限请求）
+     */
+    fun startVpnSniffer() {
+        if (TrafficSnifferService.isRunning()) {
+            // 已经在运行
+            android.widget.Toast.makeText(this, "VPN 流量嗅探已在运行", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = VpnService.prepare(this)
+        if (intent != null) {
+            // 需要用户授权
+            vpnPermissionLauncher.launch(intent)
+        } else {
+            // 已经授权过
+            TrafficSnifferService.start(this)
+            android.widget.Toast.makeText(this, "正在启动流量嗅探", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * 停止 VPN 流量嗅探
+     */
+    fun stopVpnSniffer() {
+        if (!TrafficSnifferService.isRunning()) {
+            android.widget.Toast.makeText(this, "VPN 流量嗅探未运行", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        TrafficSnifferService.stop(this)
+        android.widget.Toast.makeText(this, "已停止流量嗅探", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -61,15 +116,11 @@ fun MainApp() {
                         label = { Text(item.label) },
                         selected = currentRoute == item.route,
                         onClick = {
-                            // 导航到目标路由
                             navController.navigate(item.route) {
-                                // 弹出到起始目的地，但不包含它
                                 popUpTo(navController.graph.startDestinationId) {
                                     saveState = true
                                 }
-                                // 避免重复创建相同目的地
                                 launchSingleTop = true
-                                // 恢复之前保存的状态
                                 restoreState = true
                             }
                         },
