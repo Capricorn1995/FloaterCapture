@@ -2,7 +2,8 @@ package com.floatercapture.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
-import android.os.Bundle
+import android.os.Build
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -18,13 +19,17 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 核心无障碍服务 - 监听其他App界面并提取媒体内容
  *
- * 监听TYPE_WINDOW_STATE_CHANGED和TYPE_WINDOW_CONTENT_CHANGED事件，
- * 遍历当前窗口的节点树，识别ImageView、VideoView和WebView节点，
- * 从中提取图片/视频/音频等媒体URL，创建MediaItem并存入仓库。
+ * 实现策略：
+ * 1. 监听 TYPE_WINDOW_STATE_CHANGED 和 TYPE_WINDOW_CONTENT_CHANGED 事件
+ * 2. 遍历根节点树，识别图片/视频/媒体节点
+ * 3. 从节点的多个属性中提取 URL（contentDescription / text / viewIdResourceName / 节点层级 / AccessibilityNodeInfo extras）
+ * 4. 使用 URL 集合去重，避免同一资源被多次添加
+ * 5. 过滤自身应用界面
  */
 class MediaCaptureService : AccessibilityService() {
 
@@ -34,9 +39,33 @@ class MediaCaptureService : AccessibilityService() {
     private var currentPackageName: String = ""
     private var currentAppRule: AppRule? = null
 
+    // 已抓取 URL 集合（去重），key 是 URL 的 hash
+    private val seenUrls = ConcurrentHashMap.newKeySet<String>()
+
+    companion object {
+        private const val TAG = "MediaCapture"
+        private const val SELF_PACKAGE = "com.floatercapture"
+
+        /**
+         * 检查无障碍服务是否已启用
+         */
+        fun isServiceEnabled(context: android.content.Context): Boolean {
+            val serviceName = "${context.packageName}/.service.MediaCaptureService"
+            val enabledServices = android.provider.Settings.Secure.getString(
+                context.contentResolver,
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: return false
+            return enabledServices.contains(serviceName) ||
+                   enabledServices.contains("com.floatercapture/.service.MediaCaptureService") ||
+                   enabledServices.contains("com.floatercapture")
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
-        // 服务已连接，开始监听
+        Log.d(TAG, "无障碍服务已连接")
+        // 服务连接时清空去重集合
+        seenUrls.clear()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -47,16 +76,21 @@ class MediaCaptureService : AccessibilityService() {
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
                 AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                     val packageName = event.packageName?.toString() ?: return
+
+                    // 跳过自身应用
+                    if (packageName == SELF_PACKAGE) return
+
                     // 更新当前包名和规则
                     if (packageName != currentPackageName) {
                         currentPackageName = packageName
                         currentAppRule = AppRulesLoader.getRule(packageName)
+                        Log.d(TAG, "切换到 App: $packageName (${currentAppRule?.appName ?: "未适配"})")
                     }
                     scanCurrentWindow(packageName)
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "处理事件失败", e)
         }
     }
 
@@ -79,8 +113,14 @@ class MediaCaptureService : AccessibilityService() {
         val rootNode = rootInActiveWindow ?: return
         try {
             traverseNode(rootNode, packageName)
+        } catch (e: Exception) {
+            Log.e(TAG, "扫描失败", e)
         } finally {
-            rootNode.recycle()
+            try {
+                rootNode.recycle()
+            } catch (e: Exception) {
+                // 忽略回收错误
+            }
         }
     }
 
@@ -89,22 +129,16 @@ class MediaCaptureService : AccessibilityService() {
      */
     private fun traverseNode(node: AccessibilityNodeInfo, packageName: String) {
         try {
-            val className = node.className?.toString() ?: ""
+            // 1. 尝试从节点的多个属性中提取 URL
+            extractUrlFromAnyAttribute(node, packageName)
 
-            when {
-                isImageView(className, node) -> extractImageInfo(node, packageName)
-                isVideoView(className, node) -> extractVideoInfo(node, packageName)
-                isWebView(className, node) -> extractWebViewContent(node, packageName)
-                else -> extractUrlFromNode(node, packageName)
-            }
-
-            // 递归遍历子节点
+            // 2. 递归遍历子节点
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i) ?: continue
                 try {
                     traverseNode(child, packageName)
-                } finally {
-                    child.recycle()
+                } catch (e: Exception) {
+                    // 节点可能已被回收，忽略错误
                 }
             }
         } catch (e: Exception) {
@@ -112,211 +146,256 @@ class MediaCaptureService : AccessibilityService() {
         }
     }
 
-    // ==================== 节点类型识别 ====================
+    // ==================== URL 提取（多策略）====================
 
     /**
-     * 判断节点是否为ImageView类型
-     * 使用AppRulesLoader获取当前包名的规则进行匹配
+     * 从节点的任意可用属性中提取 URL
+     * 这是核心方法 - 多种提取策略：
+     * 1. contentDescription 中的 URL
+     * 2. text 中的 URL
+     * 3. viewIdResourceName 中的 URL（解码后）
+     * 4. 节点树向上层级中的 URL（很多 App 把 URL 放在父节点的 contentDescription）
+     * 5. 通过子节点递归查找
      */
-    private fun isImageView(className: String, node: AccessibilityNodeInfo): Boolean {
-        // 通用 ImageView 类名检查
-        if (className.contains("ImageView", ignoreCase = true) ||
-            className.contains("PhotoView", ignoreCase = true) ||
-            className.contains("NetworkImageView", ignoreCase = true)
-        ) {
-            return true
-        }
-        // 使用App规则匹配
-        currentAppRule?.let { rule ->
-            if (rule.imageViewClasses.any {
-                    className.contains(it, ignoreCase = true) || it.contains(className, ignoreCase = true)
-                }
-            ) {
-                return true
-            }
-        }
-        return false
-    }
+    private fun extractUrlFromAnyAttribute(node: AccessibilityNodeInfo, packageName: String) {
+        val className = node.className?.toString() ?: ""
 
-    /**
-     * 判断节点是否为VideoView类型
-     */
-    private fun isVideoView(className: String, node: AccessibilityNodeInfo): Boolean {
-        // 通用 VideoView 类名检查
-        if (className.contains("VideoView", ignoreCase = true) ||
-            className.contains("PlayerView", ignoreCase = true) ||
-            className.contains("TextureView", ignoreCase = true) ||
-            className.contains("SurfaceView", ignoreCase = true) ||
-            className.contains("ExoPlayerView", ignoreCase = true)
-        ) {
-            return true
-        }
-        // 使用App规则匹配
-        currentAppRule?.let { rule ->
-            if (rule.videoViewClasses.any {
-                    className.contains(it, ignoreCase = true) || it.contains(className, ignoreCase = true)
-                }
-            ) {
-                return true
-            }
-        }
-        return false
-    }
+        // 跳过系统级和布局类节点
+        if (shouldSkipNode(className, node)) return
 
-    /**
-     * 判断节点是否为WebView类型
-     */
-    private fun isWebView(className: String, node: AccessibilityNodeInfo): Boolean {
-        if (className.contains("WebView", ignoreCase = true)) {
-            return true
-        }
-        // 使用App规则匹配
-        currentAppRule?.let { rule ->
-            if (rule.webViewClasses.any {
-                    className.contains(it, ignoreCase = true) || it.contains(className, ignoreCase = true)
-                }
-            ) {
-                return true
-            }
-        }
-        return false
-    }
+        // 策略 1: contentDescription
+        val contentDesc = node.contentDescription?.toString() ?: ""
+        extractUrlFromContent(contentDesc, node, packageName)?.let { return }
 
-    // ==================== 信息提取 ====================
-
-    /**
-     * 从ImageView节点提取图片信息
-     */
-    private fun extractImageInfo(node: AccessibilityNodeInfo, packageName: String) {
-        val contentDescription = node.contentDescription?.toString() ?: ""
-        val viewIdResourceName = node.viewIdResourceName ?: ""
+        // 策略 2: text
         val text = node.text?.toString() ?: ""
+        extractUrlFromContent(text, node, packageName)?.let { return }
 
-        // 尝试从多个来源提取URL
-        val extractedUrl = extractUrlFromContent(contentDescription)
-            ?: extractUrlFromContent(text)
-            ?: extractUrlFromResourceName(viewIdResourceName)
-            ?: return // 未找到有效URL则跳过
-
-        // 验证URL是否为有效的媒体URL
-        if (!FileHelper.isValidMediaUrl(extractedUrl)) return
-
-        createMediaItem(
-            type = MediaType.IMAGE,
-            url = extractedUrl,
-            packageName = packageName,
-            description = contentDescription.ifEmpty { text }
-        )
-    }
-
-    /**
-     * 从VideoView节点提取视频信息
-     */
-    private fun extractVideoInfo(node: AccessibilityNodeInfo, packageName: String) {
-        val contentDescription = node.contentDescription?.toString() ?: ""
-        val text = node.text?.toString() ?: ""
-
-        val extractedUrl = extractUrlFromContent(contentDescription)
-            ?: extractUrlFromContent(text)
-            ?: return
-
-        if (!FileHelper.isValidMediaUrl(extractedUrl)) return
-
-        createMediaItem(
-            type = MediaType.VIDEO,
-            url = extractedUrl,
-            packageName = packageName,
-            description = contentDescription.ifEmpty { text }
-        )
-    }
-
-    /**
-     * 从WebView节点提取内容
-     * 尝试获取WebView的URL，并遍历其子节点查找媒体
-     */
-    private fun extractWebViewContent(node: AccessibilityNodeInfo, packageName: String) {
-        val contentDescription = node.contentDescription?.toString() ?: ""
-        val webUrl = extractUrlFromContent(contentDescription)
-            ?: extractUrlFromContent(node.text?.toString() ?: "")
-
-        // 如果找到WebView的URL，标记为文档类型
-        if (webUrl != null && webUrl.isNotEmpty()) {
-            createMediaItem(
-                type = MediaType.OTHER,
-                url = webUrl,
-                packageName = packageName,
-                description = "WebView: $webUrl"
-            )
+        // 策略 3: viewIdResourceName（URL 可能被 URL-encoded 嵌入）
+        val viewId = node.viewIdResourceName ?: ""
+        if (viewId.isNotEmpty()) {
+            val decoded = try {
+                java.net.URLDecoder.decode(viewId, "UTF-8")
+            } catch (e: Exception) {
+                viewId
+            }
+            extractUrlFromContent(decoded, node, packageName)?.let { return }
         }
 
-        // 递归检查WebView子节点中的媒体内容
+        // 策略 4: 检查节点的所有可用属性
+        // 一些自定义 View 会把 URL 存到节点的 hintText / paneTitle 等
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            node.hintText?.toString()?.let { hint ->
+                extractUrlFromContent(hint, node, packageName)?.let { return }
+            }
+        }
+        node.paneTitle?.toString()?.let { pane ->
+            extractUrlFromContent(pane, node, packageName)?.let { return }
+        }
+        node.tooltipText?.toString()?.let { tooltip ->
+            extractUrlFromContent(tooltip, node, packageName)?.let { return }
+        }
+
+        // 策略 5: 遍历子节点查找 URL（适用于子 ImageView 包含 URL 的情况）
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            try {
-                val className = child.className?.toString() ?: ""
-                if (isImageView(className, child)) {
-                    extractImageInfo(child, packageName)
-                } else if (isVideoView(className, child)) {
-                    extractVideoInfo(child, packageName)
-                }
-            } finally {
-                child.recycle()
-            }
+            val childDesc = child.contentDescription?.toString() ?: ""
+            val childText = child.text?.toString() ?: ""
+            val combined = "$childDesc $childText"
+            extractUrlFromContent(combined, node, packageName)?.let { return }
         }
     }
 
     /**
-     * 从节点文本和contentDescription中提取URL
-     * 使用正则匹配http/https链接
+     * 提取节点中的第一个有效 URL 并创建 MediaItem
+     * @return 成功提取返回 true，否则 null
      */
-    private fun extractUrlFromNode(node: AccessibilityNodeInfo, packageName: String) {
-        val text = node.text?.toString() ?: ""
-        val contentDescription = node.contentDescription?.toString() ?: ""
-
-        val url = extractUrlFromContent(text)
-            ?: extractUrlFromContent(contentDescription)
-            ?: return
-
-        if (!FileHelper.isValidMediaUrl(url)) return
-
-        createMediaItem(
-            type = MediaType.OTHER,
-            url = url,
-            packageName = packageName,
-            description = contentDescription.ifEmpty { text }
-        )
-    }
-
-    /**
-     * 从内容字符串中提取URL
-     */
-    private fun extractUrlFromContent(content: String): String? {
+    private fun extractUrlFromContent(
+        content: String,
+        contextNode: AccessibilityNodeInfo,
+        packageName: String
+    ): Boolean? {
         if (content.isBlank()) return null
 
-        val urlPattern = Regex(
-            """https?://[^\s<>"']+""",
-            RegexOption.IGNORE_CASE
-        )
-        return urlPattern.find(content)?.value
+        val url = extractFirstUrl(content) ?: return null
+        return processUrl(url, contextNode, packageName)
     }
 
     /**
-     * 从viewIdResourceName中尝试提取URL相关信息
+     * 从字符串中提取第一个 URL
+     * 支持多种 URL 格式：
+     * - http:// / https:// 直接 URL
+     * - URL-encoded 格式
+     * - 自定义协议
      */
-    private fun extractUrlFromResourceName(resourceName: String): String? {
-        if (resourceName.isBlank()) return null
+    private fun extractFirstUrl(content: String): String? {
+        if (content.isBlank()) return null
 
-        // 某些App会将URL编码在resource ID中
-        val urlPattern = Regex(
-            """https?%3A%2F%2F[^\s<>"']+""",
+        // 策略 1: 直接的 http/https URL
+        val httpPattern = Regex(
+            """https?://[^\s<>"'\u0020\u00A0]+""",
             RegexOption.IGNORE_CASE
         )
-        val match = urlPattern.find(resourceName)?.value ?: return null
-        return try {
-            java.net.URLDecoder.decode(match, "UTF-8")
-        } catch (e: Exception) {
-            null
+        httpPattern.find(content)?.let { match ->
+            return cleanUrl(match.value)
         }
+
+        // 策略 2: URL-encoded 格式
+        val encodedPattern = Regex(
+            """https?%3A%2F%2F[^\s<>"'\u0020\u00A0]+""",
+            RegexOption.IGNORE_CASE
+        )
+        encodedPattern.find(content)?.let { match ->
+            return try {
+                cleanUrl(java.net.URLDecoder.decode(match.value, "UTF-8"))
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        // 策略 3: 自定义协议（如 cdn://, file://, content://, data:image, data:video）
+        val dataUriPattern = Regex(
+            """data:(image|video|audio)/[a-z]+;base64,[A-Za-z0-9+/=]+""",
+            RegexOption.IGNORE_CASE
+        )
+        dataUriPattern.find(content)?.let { match ->
+            return match.value
+        }
+
+        // 策略 4: cdn/file/content 等协议
+        val customProtocolPattern = Regex(
+            """(file|content|asset|cdn|res|drawable)://[^\s<>"'\u0020\u00A0]+""",
+            RegexOption.IGNORE_CASE
+        )
+        customProtocolPattern.find(content)?.let { match ->
+            return match.value
+        }
+
+        return null
+    }
+
+    /**
+     * 清理 URL：去除尾部标点符号
+     */
+    private fun cleanUrl(url: String): String {
+        var cleaned = url
+        // 去除尾部常见标点
+        while (cleaned.isNotEmpty() && cleaned.last() in ".,;:!?)\"'>]}") {
+            cleaned = cleaned.dropLast(1)
+        }
+        return cleaned
+    }
+
+    /**
+     * 处理提取到的 URL：验证、去重、创建 MediaItem
+     */
+    private fun processUrl(
+        url: String,
+        contextNode: AccessibilityNodeInfo,
+        packageName: String
+    ): Boolean {
+        // 验证 URL 有效性
+        if (!isAcceptableMediaUrl(url)) return false
+
+        // 去重（使用 URL 本身做 key）
+        val urlKey = url.hashCode().toString()
+        if (!seenUrls.add(urlKey)) return false  // 重复 URL
+
+        // 判断媒体类型
+        val type = inferMediaType(url, contextNode)
+
+        // 提取描述
+        val description = contextNode.contentDescription?.toString()
+            ?: contextNode.text?.toString()
+            ?: ""
+
+        createMediaItem(
+            type = type,
+            url = url,
+            packageName = packageName,
+            description = description
+        )
+        return true
+    }
+
+    /**
+     * 验证 URL 是否为可接受的媒体 URL
+     */
+    private fun isAcceptableMediaUrl(url: String): Boolean {
+        if (url.isBlank() || url.length < 10) return false
+
+        // 直接的 data URI 接受
+        if (url.startsWith("data:image/") || url.startsWith("data:video/") || url.startsWith("data:audio/")) {
+            return true
+        }
+
+        // 自定义协议接受（用于 file://, content://, asset:// 等）
+        if (url.startsWith("file://") || url.startsWith("content://") ||
+            url.startsWith("asset://") || url.startsWith("android.resource://")) {
+            return true
+        }
+
+        // http/https URL 需要验证扩展名
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            val ext = FileHelper.getFileExtension(url)
+            val mediaExts = setOf(
+                "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif",
+                "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "3gp", "m3u8", "ts",
+                "mp3", "wav", "aac", "ogg", "flac", "m4a",
+                // 一些 App 用 jpeg、webp、avif 等变体
+                "avif", "tiff", "tif"
+            )
+            return ext in mediaExts
+        }
+
+        return false
+    }
+
+    /**
+     * 推断媒体类型
+     */
+    private fun inferMediaType(url: String, node: AccessibilityNodeInfo): MediaType {
+        // 1. 根据 URL 扩展名
+        val ext = FileHelper.getFileExtension(url)
+        when (ext) {
+            "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "3gp", "m3u8", "ts" -> return MediaType.VIDEO
+            "mp3", "wav", "aac", "ogg", "flac", "m4a" -> return MediaType.OTHER
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif", "avif", "tiff" -> return MediaType.IMAGE
+        }
+
+        // 2. 根据节点类名
+        val className = node.className?.toString() ?: ""
+        when {
+            className.contains("VideoView", ignoreCase = true) -> return MediaType.VIDEO
+            className.contains("Video", ignoreCase = true) -> return MediaType.VIDEO
+            className.contains("Player", ignoreCase = true) -> return MediaType.VIDEO
+            className.contains("Image", ignoreCase = true) -> return MediaType.IMAGE
+            className.contains("Photo", ignoreCase = true) -> return MediaType.IMAGE
+        }
+
+        return MediaType.OTHER
+    }
+
+    /**
+     * 判断节点是否应该跳过（不处理）
+     */
+    private fun shouldSkipNode(className: String, node: AccessibilityNodeInfo): Boolean {
+        // 跳过无内容的纯布局节点
+        if (className.isEmpty()) return true
+
+        // 跳过常见的纯布局类（它们通常不包含 URL）
+        val layoutClasses = setOf(
+            "android.widget.FrameLayout",
+            "android.widget.LinearLayout",
+            "android.widget.RelativeLayout",
+            "androidx.constraintlayout.widget.ConstraintLayout",
+            "android.widget.GridLayout",
+            "androidx.coordinatorlayout.widget.CoordinatorLayout"
+        )
+        // 但这些布局如果有子节点需要继续遍历，所以不直接 return true
+        // 暂时不跳过，让递归继续
+
+        return false
     }
 
     // ==================== MediaItem创建 ====================
@@ -330,7 +409,7 @@ class MediaCaptureService : AccessibilityService() {
         packageName: String,
         description: String
     ) {
-        val appName = currentAppRule?.appName ?: packageName
+        val appName = currentAppRule?.appName ?: getFriendlyAppName(packageName)
         val mediaItem = MediaItem(
             id = UUID.randomUUID().toString(),
             type = type,
@@ -345,6 +424,7 @@ class MediaCaptureService : AccessibilityService() {
         serviceScope.launch {
             try {
                 val id = mediaRepository.insert(mediaItem)
+                Log.d(TAG, "已捕获: [$type] $url")
                 // 通过LocalBroadcast发送媒体发现广播
                 val intent = Intent(FloatingWindowService.ACTION_MEDIA_FOUND).apply {
                     putExtra(FloatingWindowService.EXTRA_MEDIA_TYPE, type.name)
@@ -353,24 +433,20 @@ class MediaCaptureService : AccessibilityService() {
                 LocalBroadcastManager.getInstance(this@MediaCaptureService)
                     .sendBroadcast(intent)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "保存媒体失败", e)
             }
         }
     }
 
-    companion object {
-        /**
-         * 检查无障碍服务是否已启用
-         */
-        fun isServiceEnabled(context: android.content.Context): Boolean {
-            val serviceName = "${context.packageName}/.service.MediaCaptureService"
-            val enabledServices = android.provider.Settings.Secure.getString(
-                context.contentResolver,
-                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            ) ?: return false
-            return enabledServices.contains(serviceName) || 
-                   enabledServices.contains("com.floatercapture/.service.MediaCaptureService") ||
-                   enabledServices.contains("com.floatercapture")
+    /**
+     * 获取友好的应用名（未知应用时使用包名）
+     */
+    private fun getFriendlyAppName(packageName: String): String {
+        return try {
+            val appInfo = packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            packageName
         }
     }
 }
