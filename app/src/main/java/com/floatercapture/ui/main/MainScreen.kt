@@ -1,5 +1,6 @@
 package com.floatercapture.ui.main
 
+import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +25,7 @@ import com.floatercapture.data.repository.MediaRepository
 import com.floatercapture.service.FloatingWindowService
 import com.floatercapture.service.MediaCaptureService
 import com.floatercapture.service.ScreenCaptureService
+import com.floatercapture.service.TrafficSnifferService
 import com.floatercapture.util.PermissionHelper
 import com.floatercapture.ui.theme.*
 import kotlinx.coroutines.flow.first
@@ -45,11 +47,13 @@ fun MainScreen(navController: NavController) {
     // 权限状态使用 remember + LaunchedEffect 延迟检查，避免主线程阻塞
     var overlayGranted by remember { mutableStateOf(false) }
     var accessibilityGranted by remember { mutableStateOf(false) }
+    var vpnRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         // 在协程中检查权限，避免主线程 IPC 阻塞
         overlayGranted = PermissionHelper.canDrawOverlays(context)
         accessibilityGranted = MediaCaptureService.isServiceEnabled(context)
+        vpnRunning = TrafficSnifferService.isRunning()
     }
 
     val showPermissionWarning = !overlayGranted || !accessibilityGranted
@@ -96,7 +100,6 @@ fun MainScreen(navController: NavController) {
                                     FloatingWindowService.startService(context)
                                 }
                             }
-                            // StateFlow 会通过 collectAsState 自动更新
                         },
                     ) {
                         StatusCardContent(
@@ -119,6 +122,61 @@ fun MainScreen(navController: NavController) {
                             inactiveLabel = "未开启",
                             activeIcon = Icons.Default.CheckCircle,
                             inactiveIcon = Icons.Default.Cancel,
+                        )
+                    }
+                }
+            }
+
+            // VPN 流量嗅探卡片
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        if (vpnRunning) {
+                            TrafficSnifferService.stop(context)
+                            vpnRunning = false
+                        } else {
+                            val prepareIntent = TrafficSnifferService.requestVpnPermission(context)
+                            if (prepareIntent != null) {
+                                prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(prepareIntent)
+                            } else {
+                                TrafficSnifferService.start(context)
+                                vpnRunning = true
+                            }
+                        }
+                    },
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = if (vpnRunning) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(32.dp),
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "流量嗅探 (VPN)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                text = if (vpnRunning) "正在拦截网络流量" else "点击开启流量嗅探",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (vpnRunning) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(
+                            imageVector = if (vpnRunning) Icons.Default.ToggleOn else Icons.Default.ToggleOff,
+                            contentDescription = null,
+                            tint = if (vpnRunning) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(40.dp),
                         )
                     }
                 }

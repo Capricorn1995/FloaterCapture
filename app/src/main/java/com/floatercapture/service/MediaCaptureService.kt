@@ -121,8 +121,19 @@ class MediaCaptureService : AccessibilityService() {
                         currentPackageName = packageName
                         currentAppRule = AppRulesLoader.getRule(packageName)
                         Log.d(TAG, "切换到 App: $packageName (${currentAppRule?.appName ?: "未适配"})")
+                        // 切换 App 时清空分享链接缓存
+                        ShareLinkCaptureService.reset()
                     }
+
+                    // 1. 节点驱动嗅探（现有逻辑）
                     scanCurrentWindow(packageName)
+
+                    // 2. 分享链接嗅探（新）
+                    ShareLinkCaptureService.scanForShareLinks(
+                        event,
+                        rootInActiveWindow,
+                        packageName
+                    )
                 }
             }
         } catch (e: Exception) {
