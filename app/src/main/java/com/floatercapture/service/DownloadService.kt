@@ -59,6 +59,9 @@ class DownloadService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
+            // 必须先确保前台服务启动（Android 8+ 5秒限制）
+            ensureForeground()
+
             when (intent?.action) {
                 ACTION_START_DOWNLOAD -> {
                     val itemsJson = intent.getStringExtra(EXTRA_MEDIA_ITEMS_JSON)
@@ -75,10 +78,6 @@ class DownloadService : Service() {
                 ACTION_RESUME -> {
                     val taskId = intent.getStringExtra(EXTRA_TASK_ID)
                     if (taskId != null) resumeTask(taskId)
-                }
-                else -> {
-                    // 没有 action 时确保前台服务运行
-                    ensureForeground()
                 }
             }
         } catch (e: Exception) {
@@ -102,9 +101,6 @@ class DownloadService : Service() {
     private fun handleStartDownload(itemsJson: String) {
         val items = parseMediaItems(itemsJson)
         if (items.isEmpty()) return
-
-        // 启动前台服务
-        startForegroundService(items.size)
 
         serviceScope.launch {
             for (item in items) {
@@ -437,15 +433,6 @@ class DownloadService : Service() {
     /**
      * 启动前台服务通知。
      */
-    private fun startForegroundService(totalItems: Int) {
-        val notification = NotificationHelper.createDownloadProgressNotification(
-            this,
-            "准备下载 $totalItems 个文件",
-            0
-        )
-        startForeground(NOTIFICATION_ID_DOWNLOAD, notification)
-    }
-
     /**
      * 从 JSON 字符串解析 MediaItem 列表（使用 Android 内置 org.json）。
      */
