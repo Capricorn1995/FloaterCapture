@@ -673,11 +673,16 @@ class FloatingWindowService : Service() {
     private fun onDownloadAllClicked() {
         serviceScope.launch {
             try {
-                // 获取所有未下载的媒体项
+                // 获取所有未下载的媒体项，过滤掉 node:// URL
                 val allItems = mediaRepository.getAll().first()
-                val pendingItems = allItems.filter { !it.isDownloaded }
+                val pendingItems = allItems.filter { !it.isDownloaded && !it.url.startsWith("node://") }
+                val nodeItems = allItems.count { it.url.startsWith("node://") }
+
                 if (pendingItems.isEmpty()) {
-                    Toast.makeText(this@FloatingWindowService, "没有可下载的媒体文件", Toast.LENGTH_SHORT).show()
+                    val msg = if (nodeItems > 0)
+                        "没有可下载的 URL 资源（$nodeItems 个节点资源需用截屏保存）"
+                    else "没有可下载的媒体文件"
+                    Toast.makeText(this@FloatingWindowService, msg, Toast.LENGTH_LONG).show()
                     return@launch
                 }
                 DownloadService.startDownload(this@FloatingWindowService, pendingItems)
