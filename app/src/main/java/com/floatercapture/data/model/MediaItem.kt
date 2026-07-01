@@ -13,13 +13,15 @@ data class MediaItem(
     val timestamp: Long = System.currentTimeMillis(),
     val isDownloaded: Boolean = false,
     val localFilePath: String = "",
-    // 节点位置信息（用于截屏裁切）
-    val nodeBounds: String = ""
+    // 文本内容（用于 TEXT 类型）
+    val textContent: String = ""
 )
 
 enum class MediaType(val displayName: String, val mimeType: String) {
     IMAGE("图片", "image/*"),
     VIDEO("视频", "video/*"),
+    AUDIO("音频", "audio/*"),
     DOCUMENT("文档", "application/*"),
+    TEXT("文本", "text/*"),
     OTHER("其他", "*/*")
 }

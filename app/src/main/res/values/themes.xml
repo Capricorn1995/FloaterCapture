@@ -1,61 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Material3 Theme for FloaterCapture -->
     <style name="Theme.FloaterCapture" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Primary brand color -->
         <item name="colorPrimary">@color/primary</item>
         <item name="colorOnPrimary">@color/on_primary</item>
         <item name="colorPrimaryContainer">@color/primary_container</item>
         <item name="colorOnPrimaryContainer">@color/on_primary_container</item>
-
-        <!-- Secondary brand color -->
         <item name="colorSecondary">@color/secondary</item>
         <item name="colorOnSecondary">@color/on_secondary</item>
         <item name="colorSecondaryContainer">@color/secondary_container</item>
         <item name="colorOnSecondaryContainer">@color/on_secondary_container</item>
-
-        <!-- Tertiary brand color -->
         <item name="colorTertiary">@color/tertiary</item>
         <item name="colorOnTertiary">@color/on_tertiary</item>
-
-        <!-- Error color -->
         <item name="colorError">@color/error</item>
         <item name="colorOnError">@color/on_error</item>
-
-        <!-- Surface colors -->
         <item name="colorSurface">@color/surface</item>
         <item name="colorOnSurface">@color/on_surface</item>
         <item name="colorSurfaceVariant">@color/surface_variant</item>
         <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
-
-        <!-- Background -->
         <item name="android:colorBackground">@color/background</item>
         <item name="colorOnBackground">@color/on_background</item>
-
-        <!-- Status bar -->
         <item name="android:statusBarColor">@color/primary_container</item>
         <item name="android:navigationBarColor">@color/surface</item>
-    </style>
-
-    <!-- Transparent theme for floating window activities -->
-    <style name="Theme.FloaterCapture.Transparent" parent="Theme.FloaterCapture">
-        <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:windowIsFloating">false</item>
-        <item name="android:backgroundDimEnabled">false</item>
-    </style>
-
-    <!-- Control Panel Card Style -->
-    <style name="Widget.FloaterCapture.Card" parent="Widget.MaterialComponents.CardView">
-        <item name="cardCornerRadius">16dp</item>
-        <item name="cardElevation">8dp</item>
-        <item name="cardBackgroundColor">@color/surface_container_high</item>
-    </style>
-
-    <!-- Floating Button Style -->
-    <style name="Widget.FloaterCapture.FloatingButton" parent="Widget.AppCompat.Button">
-        <item name="android:background">@drawable/floating_button_background</item>
-        <item name="android:elevation">6dp</item>
     </style>
 </resources>

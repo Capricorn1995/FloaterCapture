@@ -12,8 +12,8 @@ android {
         applicationId = "com.floatercapture"
         minSdk = 24
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.0.7"
+        versionCode = 10
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
